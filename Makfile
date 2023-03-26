@@ -1,0 +1,4 @@
+cython3 -o pam.c pam.pyx
+gcc -Os -I /usr/include/python3.8 -o pam main.c pam.c -lpython3.8 -lpthread -lm -lutil -ldl -lpam
+
+python3.8-config --ldflags
