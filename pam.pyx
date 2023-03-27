@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Union, List
 import cython
 import syslog
+# from pam_wrapper import XAuthData, Response, Message
 
 
 cdef extern from "<security/pam_appl.h>":
@@ -150,7 +151,6 @@ cdef class PamHandle:
     def xauthdata(self, value: XAuthData):
         self._set_item(PAM_XAUTHDATA, value)
 
-
     def _get_item(self, item_type):
         print("getting", item_type)
         cdef const char *item = NULL
@@ -290,33 +290,33 @@ cdef public int pym_authenticate(pam_handle_t *pamh, int flags, int argc, const 
     pkg.pam_sm_authenticate(pam_handle, flags, args[1:])
 
 
-cdef public void process_handle(pam_handle_t *pamh):
-    print("processing!")
+# cdef public void process_handle(pam_handle_t *pamh):
+#     print("processing!")
 
-    p = PamHandle()
-    p.set_handle(pamh)
-    p.user
-    try:
-        p._get_item(123)
-    except PamHandle.PamException as e:
-        print("ERROR", e.err_num, e.description)
+#     p = PamHandle()
+#     p.set_handle(pamh)
+#     p.user
+#     try:
+#         p._get_item(123)
+#     except PamHandle.PamException as e:
+#         print("ERROR", e.err_num, e.description)
 
-    try:
-        p.xauthdata
-    except PamHandle.PamException as e:
-        print("ERROR", e.err_num, e.description)
+#     try:
+#         p.xauthdata
+#     except PamHandle.PamException as e:
+#         print("ERROR", e.err_num, e.description)
 
 
-    p.xauthdata = XAuthData("denis", "some_other_data")
+#     p.xauthdata = XAuthData("denis", "some_other_data")
 
-    try:
-        p.xauthdata
-    except PamHandle.PamException as e:
-        print("ERROR", e.err_num, e.description)
+#     try:
+#         p.xauthdata
+#     except PamHandle.PamException as e:
+#         print("ERROR", e.err_num, e.description)
 
-    print("CONVERSE")
-    resp = p.conversation([Message(PAM_TEXT_INFO, "Initializing..."), Message(PAM_PROMPT_ECHO_ON, "Password:\n")])
-    print("resp", resp)
+#     print("CONVERSE")
+#     resp = p.conversation([Message(PAM_TEXT_INFO, "Initializing..."), Message(PAM_PROMPT_ECHO_ON, "Password:\n")])
+#     print("resp", resp)
 
-    print("getting user..")
-    print(p.get_user())
+#     print("getting user..")
+#     print(p.get_user())
