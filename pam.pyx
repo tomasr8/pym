@@ -14,18 +14,19 @@ cdef extern from "<security/pam_appl.h>":
     pass
 
 cdef extern from "<security/pam_modules.h>":
-    cdef int PAM_BAD_ITEM
-    cdef int PAM_BUF_ERR
-    cdef int PAM_SUCCESS
-    cdef int PAM_PERM_DENIED
-    cdef int PAM_SYSTEM_ERR
-
+    # authentication results
     cdef int PAM_AUTH_ERR
     cdef int PAM_CRED_INSUFFICIENT
     cdef int PAM_AUTHINFO_UNAVAIL
     cdef int PAM_USER_UNKNOWN
     cdef int PAM_MAXTRIES
-
+    # pam_[gs]et_item results
+    cdef int PAM_BAD_ITEM
+    cdef int PAM_BUF_ERR
+    cdef int PAM_SUCCESS
+    cdef int PAM_PERM_DENIED
+    cdef int PAM_SYSTEM_ERR
+    # pam_[gs]et_item item_type
     cdef int PAM_SERVICE
     cdef int PAM_USER
     cdef int PAM_USER_PROMPT
@@ -35,12 +36,12 @@ cdef extern from "<security/pam_modules.h>":
     cdef int PAM_AUTHTOK
     cdef int PAM_OLDAUTHTOK
     cdef int PAM_CONV
-    # non-portable
+    # non-portable item_types
     cdef int PAM_FAIL_DELAY
     cdef int PAM_XDISPLAY
     cdef int PAM_XAUTHDATA
     cdef int PAM_AUTHTOK_TYPE
-    # msg_style
+    # pam_message msg_style
     cdef int PAM_PROMPT_ECHO_OFF
     cdef int PAM_PROMPT_ECHO_ON
     cdef int PAM_ERROR_MSG
@@ -124,8 +125,47 @@ cdef class PamHandle:
     Message = Message
     Response = Response
 
+    # authentication results
+    PAM_AUTH_ERR          = PAM_AUTH_ERR
+    PAM_CRED_INSUFFICIENT = PAM_CRED_INSUFFICIENT
+    PAM_AUTHINFO_UNAVAIL  = PAM_AUTHINFO_UNAVAIL
+    PAM_USER_UNKNOWN      = PAM_USER_UNKNOWN
+    PAM_MAXTRIES          = PAM_MAXTRIES
+    # pam_[gs]et_item results
+    PAM_BAD_ITEM          = PAM_BAD_ITEM
+    PAM_BUF_ERR           = PAM_BUF_ERR
+    PAM_SUCCESS           = PAM_SUCCESS
+    PAM_PERM_DENIED       = PAM_PERM_DENIED
+    PAM_SYSTEM_ERR        = PAM_SYSTEM_ERR
+    # pam_[gs]et_item item_type
+    PAM_SERVICE           = PAM_SERVICE
+    PAM_USER              = PAM_USER
+    PAM_USER_PROMPT       = PAM_USER_PROMPT
+    PAM_TTY               = PAM_TTY
+    PAM_RUSER             = PAM_RUSER
+    PAM_RHOST             = PAM_RHOST
+    PAM_AUTHTOK           = PAM_AUTHTOK
+    PAM_OLDAUTHTOK        = PAM_OLDAUTHTOK
+    PAM_CONV              = PAM_CONV
+    # non-portable item_types
+    PAM_FAIL_DELAY        = PAM_FAIL_DELAY
+    PAM_XDISPLAY          = PAM_XDISPLAY
+    PAM_XAUTHDATA         = PAM_XAUTHDATA
+    PAM_AUTHTOK_TYPE      = PAM_AUTHTOK_TYPE
+    # pam_message msg_style
+    PAM_PROMPT_ECHO_OFF   = PAM_PROMPT_ECHO_OFF
+    PAM_PROMPT_ECHO_ON    = PAM_PROMPT_ECHO_ON
+    PAM_ERROR_MSG         = PAM_ERROR_MSG
+    PAM_TEXT_INFO         = PAM_TEXT_INFO 
+
     cdef set_handle(self, pam_handle_t *pamh):
         self._pamh = pamh
+
+    @classmethod
+    cdef create(cls, pam_handle_t *pamh):
+        handle = cls()
+        handle.set_handle(pamh)
+        return handle
 
     @property
     def service(self):
@@ -267,14 +307,7 @@ cdef class PamHandle:
         return err.decode("utf-8")
 
 
-pkg = None
-cdef public void pam_module_init(char * module_name):
-    print("importing", module_name.decode("utf-8"))
-    global pkg
-    pkg = importlib.import_module(module_name.decode("utf-8"))
-
-
-cdef public int pym_authenticate(pam_handle_t *pamh, int flags, int argc, const char ** argv):
+cdef python_handle_request(pam_handle_t *pamh, int flags, int argc, const char ** argv, pam_fn_name):
     if argc == 0:
         log("pym: no python module provided")
         return PAM_AUTH_ERR
@@ -284,10 +317,43 @@ cdef public int pym_authenticate(pam_handle_t *pamh, int flags, int argc, const 
         args.append(argv[i].decode("utf-8"))
 
     print("importing", args[0])
-    pkg = importlib.import_module(args[0])
-    pam_handle = PamHandle()
-    pam_handle.set_handle(pamh)
-    pkg.pam_sm_authenticate(pam_handle, flags, args[1:])
+    try:
+        module = importlib.import_module(args[0])
+    except ImportError as e:
+        log(str(e))
+        return PAM_AUTH_ERR
+
+    pam_handle = PamHandle.create(pamh)
+
+    try:
+        getattr(module, pam_fn_name)(pam_handle, flags, args[1:])
+    except Exception as e:
+        log(str(e))
+        return PAM_AUTH_ERR
+
+
+# cdef public int python_pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char ** argv):
+#     return handle_request(pamh, flags, argc, argv, "pam_sm_authenticate")
+
+
+# cdef public int python_pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char ** argv):
+#     return handle_request(pamh, flags, argc, argv, "pam_sm_setcred")
+
+
+# cdef public int python_pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char ** argv):
+#     return handle_request(pamh, flags, argc, argv, "pam_sm_acct_mgmt")
+
+
+# cdef public int python_pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char ** argv):
+#     return handle_request(pamh, flags, argc, argv, "pam_sm_open_session")
+
+
+# cdef public int python_pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char ** argv):
+#     return handle_request(pamh, flags, argc, argv, "pam_sm_close_session")
+
+
+# cdef public int python_pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char ** argv):
+#     return handle_request(pamh, flags, argc, argv, "pam_sm_chauthtok")
 
 
 # cdef public void process_handle(pam_handle_t *pamh):

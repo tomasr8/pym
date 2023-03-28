@@ -27,6 +27,39 @@ class PamHandle:
     Message: Message
     Response: Response
 
+        # authentication results
+    PAM_AUTH_ERR          : int
+    PAM_CRED_INSUFFICIENT : int
+    PAM_AUTHINFO_UNAVAIL  : int
+    PAM_USER_UNKNOWN      : int
+    PAM_MAXTRIES          : int
+    # pam_[gs]et_item results
+    PAM_BAD_ITEM          : int
+    PAM_BUF_ERR           : int
+    PAM_SUCCESS           : int
+    PAM_PERM_DENIED       : int
+    PAM_SYSTEM_ERR        : int
+    # pam_[gs]et_item item_type
+    PAM_SERVICE           : int
+    PAM_USER              : int
+    PAM_USER_PROMPT       : int
+    PAM_TTY               : int
+    PAM_RUSER             : int
+    PAM_RHOST             : int
+    PAM_AUTHTOK           : int
+    PAM_OLDAUTHTOK        : int
+    PAM_CONV              : int
+    # non-portable item_types
+    PAM_FAIL_DELAY        : int
+    PAM_XDISPLAY          : int
+    PAM_XAUTHDATA         : int
+    PAM_AUTHTOK_TYPE      : int
+    # pam_message msg_style
+    PAM_PROMPT_ECHO_OFF   : int
+    PAM_PROMPT_ECHO_ON    : int
+    PAM_ERROR_MSG         : int
+    PAM_TEXT_INFO         : int 
+
     @property
     def service(self) -> str: ...
 

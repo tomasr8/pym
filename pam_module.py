@@ -1,6 +1,4 @@
-from pam import Response, PamException, PamHandle
+from .pam import Response, PamException, PamHandle
 
-h = PamHandle()
-
-def pam_sm_authenticate(pamh: PamHandle):
-    ...
+def pam_sm_authenticate(pamh: PamHandle, flags, argv):
+    return pamh.PAM_SUCCESS
