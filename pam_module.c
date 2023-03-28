@@ -30,12 +30,12 @@ void register_cleanup(pam_handle_t *pamh) {
 void initialize(pam_handle_t *pamh) {
     // https://docs.python.org/3/c-api/init.html#non-python-created-threads
     // unlike in python2, in python3 thread management is done automatically by Py_Initialize()
-    int err = PyImport_AppendInittab("pam", PyInit_pam);
+    PyImport_AppendInittab("pym", PyInit_pym);
     Py_Initialize();
-    PyImport_ImportModule("pam");
+    PyImport_ImportModule("pym");
 }
 
-int handle_request(pam_handle_t *pamh, int flags, int argc, const char **argv, const char *pam_fn_name, int err_return) {
+int handle_request(pam_handle_t *pamh, int flags, int argc, const char **argv, char *pam_fn_name, int err_return) {
     n_simultaneous_requests++;
     register_cleanup(pamh);
     if(!Py_IsInitialized()) {

@@ -107,6 +107,9 @@ cdef extern from "<security/pam_modules.h>":
     int pam_get_user(const pam_handle_t *pamh, const char **user, const char *prompt)
     int pam_fail_delay(pam_handle_t *pamh, unsigned int usec)
     const char *pam_strerror(pam_handle_t *pamh, int err_num)
+
+
+cdef extern from "<security/pam_ext.h>":
     void pam_syslog(pam_handle_t *pamh, int priority, const char *fmt, ...)
 
 
@@ -124,7 +127,9 @@ cdef class PamLogger:
 
     cdef log(self, msg, priority=syslog.LOG_ERR):
         print(msg)
-        pam_syslog(self._pamh, priority, msg)
+        # Make '-Werror=format-security' happy by passing an explicit format string (%s)
+        bytes_msg = msg.encode("utf-8")
+        pam_syslog(self._pamh, priority, "%s", <char *>bytes_msg)
 
     cdef debug(self, msg):
         self.log(msg, priority=syslog.LOG_DEBUG)
@@ -358,7 +363,10 @@ cdef class PamHandle:
         return responses
 
     def prompt(self, msg, msg_style=PAM_PROMPT_ECHO_OFF):
-        return self.converse(Message(msg_style=msg_style, msg=msg))
+        if isinstance(msg, Message):
+            return self.converse(msg)
+        else:
+            return self.converse(Message(msg_style=msg_style, msg=msg))
 
     def strerror(self, err_num):
         cdef const char* err = pam_strerror(self._pamh, err_num)
@@ -437,11 +445,12 @@ ERRORS = {
     "pam_sm_chauthtok": PAM_AUTHTOK_ERR
 }
 
-cdef python_handle_request(pam_handle_t *pamh, int flags, int argc, const char ** argv, pam_fn_name):
+cdef public int python_handle_request(pam_handle_t *pamh, int flags, int argc, const char ** argv, char *pam_fn_name):
+    fn_name = pam_fn_name.decode("utf-8")
     logger = PamLogger.create(pamh)
     if argc == 0:
         logger.log("No python module provided")
-        return ERRORS[pam_fn_name]
+        return ERRORS[fn_name]
 
     args = []
     for i in range(argc):
@@ -452,24 +461,24 @@ cdef python_handle_request(pam_handle_t *pamh, int flags, int argc, const char *
         module = load_module(args[0])
     except Exception as e:
         logger.log(f"Failed to import python module: {e}")
-        return ERRORS[pam_fn_name]
+        return ERRORS[fn_name]
 
     pam_handle = PamHandle.create(pamh)
 
-    handler = getattr(module, pam_fn_name, None)
+    handler = getattr(module, fn_name, None)
     if handler is None:
-        logger.log(f"No python handler provided for {pam_fn_name}")
-        return ERRORS[pam_fn_name]
+        logger.log(f"No python handler provided for {fn_name}")
+        return ERRORS[fn_name]
 
     try:
         retval = handler(pam_handle, flags, args[1:])
     except Exception as e:
-        logger.log(f"Exception ocurred while running python handler: [flags={flags}, args={args[1:]}, fn_name={pam_fn_name}]" +
+        logger.log(f"Exception ocurred while running python handler: [flags={flags}, args={args[1:]}, fn_name={fn_name}]" +
                    f"   Exception: {e}")
-        return ERRORS[pam_fn_name]
+        return ERRORS[fn_name]
 
     if not isinstance(retval, int):
         logger.log(f"Return value must be an integer, received {type(retval)} [value={retval}]")
-        return ERRORS[pam_fn_name]
+        return ERRORS[fn_name]
     else:
         return retval        
