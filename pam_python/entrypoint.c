@@ -8,9 +8,11 @@
 #include <security/pam_modules.h>
 #include <security/pam_appl.h>
 #include <Python.h>
-#include "pam.h"
 
-const char* module_name = "pym_python_pam_module";
+#include "pam_python.h"
+
+#define MODULE_NAME "pam_python"
+
 // Thread-safe updates
 _Atomic int n_simultaneous_requests = 0;
 PyGILState_STATE gil_state;
@@ -24,15 +26,15 @@ void cleanup(pam_handle_t *pamh, void *data, int error_status) {
 }
 
 void register_cleanup(pam_handle_t *pamh) {
-    pam_set_data(pamh, module_name, NULL, cleanup);
+    pam_set_data(pamh, MODULE_NAME, NULL, cleanup);
 }
 
 void initialize(pam_handle_t *pamh) {
     // https://docs.python.org/3/c-api/init.html#non-python-created-threads
     // unlike in python2, in python3 thread management is done automatically by Py_Initialize()
-    PyImport_AppendInittab("pym", PyInit_pym);
+    PyImport_AppendInittab(MODULE_NAME, PyInit_pam_python);
     Py_Initialize();
-    PyImport_ImportModule("pym");
+    PyImport_ImportModule(MODULE_NAME);
 }
 
 int handle_request(pam_handle_t *pamh, int flags, int argc, const char **argv, char *pam_fn_name, int err_return) {

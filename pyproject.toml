@@ -1,0 +1,59 @@
+[project]
+name = "pam_python"
+dynamic = ["version"]
+description = "Linux PAM Python module - write your PAM modules in Python"
+readme = "README.md"
+authors = [{ name = "Tomas Roun", email = "tomas.roun8@gmail.com" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: MicroPython",
+    "Topic :: Communications",
+    "Topic :: Education",
+]
+keywords = [
+    "raspberry pi",
+    "raspberry",
+    "rpi",
+    "pico",
+    "rf",
+    "rf433",
+    "radio",
+    "433",
+    "433mhz",
+    "micropython",
+    "gpio",
+]
+dependencies = [
+    
+]
+
+requires-python = ">=3.8"
+
+[tool.setuptools.dynamic]
+version = { attr = "pam_python.__version__" }
+
+[project.optional-dependencies]
+dev = ["flake8", "isort", "pip-tools", "pytest", "pre-commit"]
+
+[project.urls]
+Homepage = "https://github.com/tomasr8/tinyrf"
+Github = "https://github.com/tomasr8/tinyrf"
+
+[tool.isort]
+line_length=120
+lines_after_imports=2
+
+[tool.setuptools]
+packages = ["pam_python"]
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel", "Cython>=3.0.0b2"]
+build-backend = "setuptools.build_meta"
