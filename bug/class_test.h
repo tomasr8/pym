@@ -1,1 +1,0 @@
-#define XXX 1
