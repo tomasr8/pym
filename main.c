@@ -101,24 +101,24 @@ int main() {
     // pam_get_item(pamh, PAM_USER, (const void **)&item);
     // printf("printing item\n");
     // printf("ITEM: %s\n", item);
-    
-    
+
+
     struct pam_xauth_data xauth = {
         3, "ken", 9, "some_data"
     };
-    
+
     printf("setting xauth\n");
     pam_set_item(pamh, PAM_XAUTHDATA, &xauth);
 
     struct pam_xauth_data *new_xauth;
-    
+
     printf("reading xauth\n");
     pam_get_item(pamh, PAM_XAUTHDATA, (const void **)&new_xauth);
-    
+
     printf("xauth: %d %d\n", new_xauth->namelen, new_xauth->datalen);
 
 
-    
+
     process_handle(pamh);
 
 

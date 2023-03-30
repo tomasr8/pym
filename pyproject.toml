@@ -6,42 +6,33 @@ readme = "README.md"
 authors = [{ name = "Tomas Roun", email = "tomas.roun8@gmail.com" }]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
     "Intended Audience :: Developers",
-    "Intended Audience :: Education",
-    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
-    "Natural Language :: English",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: MicroPython",
-    "Topic :: Communications",
-    "Topic :: Education",
+    "Programming Language :: Cython",
+    "Programming Language :: C",
+    "Topic :: Security",
+    "Topic :: System :: Operating System",
+    "Topic :: System :: Systems Administration"
 ]
 keywords = [
-    "raspberry pi",
-    "raspberry",
-    "rpi",
-    "pico",
-    "rf",
-    "rf433",
-    "radio",
-    "433",
-    "433mhz",
-    "micropython",
-    "gpio",
+    "Linux PAM",
+    "PAM",
+    "PAM Module",
+    "Pluggable Authentication Modules",
+    "Python PAM",
+    "PAM Python"
 ]
-dependencies = [
-    
-]
-
+dependencies = []
 requires-python = ">=3.8"
 
 [tool.setuptools.dynamic]
 version = { attr = "pam_python.__version__" }
 
 [project.optional-dependencies]
-dev = ["flake8", "isort", "pip-tools", "pytest", "pre-commit"]
+dev = ["flake8", "isort", "pep8-naming", "pip-tools", "pytest", "pre-commit"]
 
 [project.urls]
 Homepage = "https://github.com/tomasr8/tinyrf"

@@ -1,6 +1,7 @@
-from typing import Union, List
-from dataclasses import dataclass
 import syslog
+from dataclasses import dataclass
+from typing import List, Union
+
 
 class PamException(Exception):
     def __init__(self, err_num: int, description: str, *args, **kwargs) -> None: ...

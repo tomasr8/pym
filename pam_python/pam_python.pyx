@@ -116,7 +116,7 @@ cdef extern from "<security/pam_ext.h>":
 
 class PamException(Exception):
     """Base PAM exception
-    
+
     This exception is raised for any unsuccessful pam_* call
     (i.e. the return value is not PAM_SUCCESS).
 
@@ -447,42 +447,43 @@ ERRORS = {
 }
 
 cdef public int python_handle_request(pam_handle_t *pamh, int flags, int argc, const char ** argv, char *pam_fn_name):
-    pam_handle = PamHandle.create(pamh)
-    fn_name = pam_fn_name.decode("utf-8")
+    print("handling request..")
+    # pam_handle = PamHandle.create(pamh)
+    # fn_name = pam_fn_name.decode("utf-8")
 
-    if argc == 0:
-        pam_handle.log("No python module provided")
-        return ERRORS[fn_name]
+    # if argc == 0:
+    #     pam_handle.log("No python module provided")
+    #     return ERRORS[fn_name]
 
-    args = []
-    for i in range(argc):
-        args.append(argv[i].decode("utf-8"))
+    # args = []
+    # for i in range(argc):
+    #     args.append(argv[i].decode("utf-8"))
 
-    pam_handle.debug(f"Importing {args[0]}")
-    try:
-        module = _load_module(args[0])
-    except Exception as e:
-        pam_handle.log(f"Failed to import python module: {e}")
-        return ERRORS[fn_name]
+    # pam_handle.debug(f"Importing {args[0]}")
+    # try:
+    #     module = _load_module(args[0])
+    # except Exception as e:
+    #     pam_handle.log(f"Failed to import python module: {e}")
+    #     return ERRORS[fn_name]
 
 
-    handler = getattr(module, fn_name, None)
-    if handler is None:
-        pam_handle.log(f"No python handler provided for {fn_name}")
-        return ERRORS[fn_name]
+    # handler = getattr(module, fn_name, None)
+    # if handler is None:
+    #     pam_handle.log(f"No python handler provided for {fn_name}")
+    #     return ERRORS[fn_name]
 
-    try:
-        retval = handler(pam_handle, flags, args[1:])
-    except Exception as e:
-        pam_handle.log(f"Exception ocurred while running python handler: [flags={flags}, args={args[1:]}, fn_name={fn_name}]" +
-                   f"   Exception: {e}")
-        return ERRORS[fn_name]
+    # try:
+    #     retval = handler(pam_handle, flags, args[1:])
+    # except Exception as e:
+    #     pam_handle.log(f"Exception ocurred while running python handler: [flags={flags}, args={args[1:]}, fn_name={fn_name}]" +
+    #                f"   Exception: {e}")
+    #     return ERRORS[fn_name]
 
-    if not isinstance(retval, int):
-        pam_handle.log(f"Return value must be an integer, received {type(retval)} [value={retval}]")
-        return ERRORS[fn_name]
-    else:
-        return retval        
+    # if not isinstance(retval, int):
+    #     pam_handle.log(f"Return value must be an integer, received {type(retval)} [value={retval}]")
+    #     return ERRORS[fn_name]
+    # else:
+    #     return retval
 
-def test_constants():
+cdef public print_hello():
     print("_PAM_SUCCESS", _PAM_SUCCESS, _PAM_OPEN_ERR)

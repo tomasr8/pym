@@ -1,4 +1,5 @@
-from pam_python import Response, PamException, PamHandle
+from pam_python import PamException, PamHandle, Response
+
 
 def pam_sm_authenticate(pamh: PamHandle, flags, argv):
     # pamh.logger

@@ -13,7 +13,21 @@
 #include "pym.h"
 #define MODULE_NAME "pym"
 
-int main() {
+void test() {
+    printf("TEST!\n");
+}
+
+// int run_python() {
+//     printf("main()\n");
+//     int n = Py_IsInitialized();
+//     printf("init %d\n", n);
+//     Py_Initialize();
+//     printf("initialized\n");
+//     Py_Finalize();
+//     return PAM_SUCCESS;
+// }
+
+int run_python() {
     printf("main()\n");
     int n = Py_IsInitialized();
     printf("init %d\n", n);
@@ -22,21 +36,35 @@ int main() {
     Py_Initialize();
     printf("Importing module\n");
     PyImport_ImportModule(MODULE_NAME);
-
+    print_hello();
     Py_Finalize();
     return PAM_SUCCESS;
 }
 
-PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char **argv) {
-    printf("pam_sm_authenticate(): %d %d\n", flags, argc);
-    int n = Py_IsInitialized();
-    printf("init %d\n", n);
-    int err = PyImport_AppendInittab(MODULE_NAME, PyInit_pym);
-    printf("Loaded module %d\n", err);
-    Py_Initialize();
-    printf("Importing module\n");
-    PyImport_ImportModule(MODULE_NAME);
+// int main() {
+//     printf("main()\n");
+//     int n = Py_IsInitialized();
+//     printf("init %d\n", n);
+//     int err = PyImport_AppendInittab(MODULE_NAME, PyInit_pym);
+//     printf("Loaded module %d\n", err);
+//     Py_Initialize();
+//     printf("Importing module\n");
+//     PyImport_ImportModule(MODULE_NAME);
 
-    Py_Finalize();
-    return PAM_SUCCESS;
-}
+//     Py_Finalize();
+//     return PAM_SUCCESS;
+// }
+
+// PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+//     printf("pam_sm_authenticate(): %d %d\n", flags, argc);
+//     int n = Py_IsInitialized();
+//     printf("init %d\n", n);
+//     int err = PyImport_AppendInittab(MODULE_NAME, PyInit_pym);
+//     printf("Loaded module %d\n", err);
+//     Py_Initialize();
+//     printf("Importing module\n");
+//     PyImport_ImportModule(MODULE_NAME);
+
+//     Py_Finalize();
+//     return PAM_SUCCESS;
+// }
