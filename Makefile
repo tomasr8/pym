@@ -1,6 +1,1 @@
-cython3 -o pam.c pam.pyx
-gcc -Os -I /usr/include/python3.9 -o pam main.c pam.c -lpython3.9 -lpthread -lm -lutil -ldl -lpam
-
-gcc -O2 -I /usr/include/python3.9 -o pam.so pam.c -lpython3.9 -lpthread -lm -lutil -ldl -lpam -shared -fPIC -fwrapv -fno-strict-aliasing
-
-python3.8-config --ldflags
+rm pam_python/pam_python.h pam_python/pam_python.c && python setup.py build && mv build/lib.linux-x86_64-3.8/pam_python/pam_python.cpython-38-x86_64-linux-gnu.so pam_python.so

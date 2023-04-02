@@ -446,8 +446,12 @@ ERRORS = {
     "pam_sm_chauthtok": _PAM_AUTHTOK_ERR
 }
 
+cdef public int _python_handle_request(int read_end, int write_end, int flags, int argc, const char ** argv, char *pam_fn_name):
+    return 0
+
 cdef public int python_handle_request(pam_handle_t *pamh, int flags, int argc, const char ** argv, char *pam_fn_name):
     print("handling request..")
+    return 0
     # pam_handle = PamHandle.create(pamh)
     # fn_name = pam_fn_name.decode("utf-8")
 
