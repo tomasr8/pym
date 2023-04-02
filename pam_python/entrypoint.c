@@ -4,254 +4,440 @@
 #define PAM_SM_SESSION
 #define PAM_SM_PASSWORD
 
-#include <sys/wait.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <dlfcn.h>
-#include <security/pam_modules.h>
-#include <security/pam_appl.h>
 #include <Python.h>
+#include <security/pam_appl.h>
+#include <security/pam_ext.h>
+#include <security/pam_modules.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <syslog.h>
+#include <unistd.h>
 
 #include "pam_python.h"
+#include "pipe.h"
 
-#define MODULE_NAME "pam_python.pam_python"
+#define ENSURE(x) \
+  if (x != SUCCESS) return x
+#define ENSURE(x, ret) \
+  if (x != SUCCESS) return ret
 
 static char libpython_so[] = LIBPYTHON_SO;
 
-// Thread-safe updates
-// _Atomic int n_simultaneous_requests = 0;
-
-// void cleanup(pam_handle_t *pamh, void *data, int error_status) {
-//     n_simultaneous_requests--;
-//     if(n_simultaneous_requests == 0) {
-//         // last thread to finish running is responsible for cleaning up
-//         Py_FinalizeEx();
-//     }
-// }
-
-// void register_cleanup(pam_handle_t *pamh) {
-//     pam_set_data(pamh, MODULE_NAME, NULL, cleanup);
-// }
-
-// void initialize(pam_handle_t *pamh) {
-//     // https://docs.python.org/3/c-api/init.html#non-python-created-threads
-//     // unlike in python2, in python3 thread management is done automatically by Py_Initialize()
-//     printf("here\n");
-//     PyImport_AppendInittab(MODULE_NAME, PyInit_pam_python);
-//     printf("here2\n");
-    
-//     Py_Initialize();
-//     printf("here3\n");
-
-//     PyGILState_STATE gil_state = PyGILState_Ensure();
-//     printf("here4\n");
-    
-//     PyImport_ImportModule(MODULE_NAME);
-//     printf("here5\n");
-
-//     PyGILState_Release(gil_state);
-//     printf("here6\n");
-
-// }
-
-static void generic_dealloc(PyObject* self)
-{
-  PyTypeObject*		type = self->ob_type;
-
-  if (PyObject_IS_GC(self))
-    PyObject_GC_UnTrack(self);
-  if (type->tp_clear != 0)
-    type->tp_clear(self);
-  type->tp_free(self);
+static int get_default_err(char *pam_fn_name) {
+  if (strcmp(pam_fn_name, "pam_sm_authenticate") == 0) {
+    return PAM_AUTH_ERR;
+  } else if (strcmp(pam_fn_name, "pam_sm_setcred") == 0) {
+    return PAM_CRED_ERR;
+  } else if (strcmp(pam_fn_name, "pam_sm_acct_mgmt") == 0) {
+    return PAM_AUTH_ERR;
+  } else if (strcmp(pam_fn_name, "pam_sm_open_session") == 0) {
+    return PAM_SESSION_ERR;
+  } else if (strcmp(pam_fn_name, "pam_sm_close_session") == 0) {
+    return PAM_SESSION_ERR;
+  } else if (strcmp(pam_fn_name, "pam_sm_chauthtok") == 0) {
+    return PAM_AUTH_ERR;
+  }
+  return PAM_ABORT;
 }
 
-int handle_request(pam_handle_t *pamh, int flags, int argc, char const **argv, char *pam_fn_name, int err_return) {
-    PyGILState_STATE gil_state = PyGILState_Ensure();
-    PyThreadState* pGlobalThreadState = PyThreadState_Get();
-    PyThreadState* pInterpreterThreadState = Py_NewInterpreter();
-    PyThreadState_Swap(pInterpreterThreadState);
+static int _converse(int n, const struct pam_message **msg, struct pam_response **resp, void *data) {
+  struct pam_response *aresp;
+  char buf[PAM_MAX_RESP_SIZE];
+  int i;
 
-    // PyObject* pyModule = PyInit_pam_python();
-    // Py_DECREF(pyModule);
-    // PyObject_GC_UnTrack(pyModule);
-
-    printf("here\n");
-    // PyImport_AddModule("pam_python");
-    // PyObject *def = PyInit_pam_python();
-    // if (!def) {
-    //     PyErr_Print();
-    //     exit(1);
-    // }
-    // PyObject *spec = PyObject_GetAttrString(def, "__spec__");
-    // PyObject *module = PyModule_FromDefAndSpec(def, spec);
-    // PyModule_ExecDef(module, def);
-
-    // PyImport_AppendInittab("pam_python", PyInit_pam_python);
-    // PyImport_AddModule("pam_python");
-    PyObject* pyModule = PyInit_pam_python();
-    if (!pyModule) {
-        PyErr_Print();
-        exit(1);
+  data = data;
+  if (n <= 0 || n > PAM_MAX_NUM_MSG)
+    return (PAM_CONV_ERR);
+  if ((aresp = calloc(n, sizeof *aresp)) == NULL)
+    return (PAM_BUF_ERR);
+  for (i = 0; i < n; ++i) {
+    aresp[i].resp_retcode = 0;
+    aresp[i].resp = NULL;
+    switch (msg[i]->msg_style) {
+      case PAM_PROMPT_ECHO_OFF:
+        aresp[i].resp = strdup(getpass(msg[i]->msg));
+        if (aresp[i].resp == NULL)
+          goto fail;
+        break;
+      case PAM_PROMPT_ECHO_ON:
+        fputs(msg[i]->msg, stderr);
+        if (fgets(buf, sizeof buf, stdin) == NULL)
+          goto fail;
+        aresp[i].resp = strdup(buf);
+        if (aresp[i].resp == NULL)
+          goto fail;
+        break;
+      case PAM_ERROR_MSG:
+        fputs(msg[i]->msg, stderr);
+        if (strlen(msg[i]->msg) > 0 &&
+            msg[i]->msg[strlen(msg[i]->msg) - 1] != '\n')
+          fputc('\n', stderr);
+        break;
+      case PAM_TEXT_INFO:
+        fputs(msg[i]->msg, stdout);
+        if (strlen(msg[i]->msg) > 0 &&
+            msg[i]->msg[strlen(msg[i]->msg) - 1] != '\n')
+          fputc('\n', stdout);
+        break;
+      default:
+        goto fail;
     }
-    Py_INCREF(pyModule);
-    PyObject* sys_modules = PyImport_GetModuleDict();
-    if (!sys_modules) {
-        PyErr_Print();
-        exit(1);
+  }
+  *resp = aresp;
+  return (PAM_SUCCESS);
+fail:
+  for (i = 0; i < n; ++i) {
+    if (aresp[i].resp != NULL) {
+      memset(aresp[i].resp, 0, strlen(aresp[i].resp));
+      free(aresp[i].resp);
     }
-    printf("here2\n");
-    PyDict_SetItemString(sys_modules, "pam_python", pyModule);
-    // Py_XDECREF(pyModule);
-    printf("here2.5\n");
-    // PyRun_SimpleString("print('Inside new interp')"); // Importing PySide deadlocks
-    // python_handle_request(pamh, flags, argc, argv, pam_fn_name);
-    // printf("function returned\n");
+  }
+  memset(aresp, 0, n * sizeof *aresp);
+  *resp = NULL;
+  return (PAM_CONV_ERR);
+}
 
-    printf("here3\n");
-    // generic_dealloc(pyModule);
+static int get_item(pam_handle_t *pamh, struct ipc_pipe p) {
+  int item_type;
+  int status = read_int(p.read_end, &item_type);
+  ENSURE(status);
 
-    Py_EndInterpreter(pInterpreterThreadState);
-    printf("swapped interp\n");
+  if (item_type == PAM_XAUTHDATA) {
+    struct pam_xauth_data *xauth;
 
-    PyThreadState_Swap(pGlobalThreadState);
-    printf("releasing gil..\n");
+    int retval = pam_get_item(pamh, item_type, (const void **)&xauth);
+    status = write_int(p.write_end, retval);
+    ENSURE(status);
 
-    if(gil_state) {
-        PyGILState_Release(gil_state);
+    if (pam_retval == PAM_SUCCESS) {
+      status = write_int(p.write_end, xauth->namelen);
+      ENSURE(status);
+      status = write_string(p.write_end, xauth->name, xauth->namelen);
+      ENSURE(status);
+      status = write_int(p.write_end, xauth->datalen);
+      ENSURE(status);
+      status = write_string(p.write_end, xauth->data, xauth->datalen);
+      ENSURE(status);
     }
-    printf("gil releasesd\n");
 
-    return PAM_SUCCESS;
+    return SUCCESS;
+  } else {
+    char *item;
 
+    retval = pam_get_item(pamh, item_type, (const void **)&item);
+    status = write_int(p.write_end, retval);
+    ENSURE(status);
 
+    if (retval == PAM_SUCCESS) {
+      status = write_int(p.write_end, strlen(item));
+      ENSURE(status);
+      status = write_string(p.write_end, item, strlen(item));
+      ENSURE(status);
+    }
 
-    // ==========================================================
+    return SUCCESS;
+  }
+}
 
+static int set_item(pam_handle_t *pamh, struct ipc_pipe p) {
+  int item_type;
+  int status = read_int(p.read_end, &item_type);
+  ENSURE(retval);
 
-    // printf("Forking...\n");
+  if (item_type == PAM_XAUTHDATA) {
+    struct pam_xauth_data *xauth = malloc(sizeof(struct pam_xauth_data));
+    if (!xauth) return MALLOC_ERR;
 
-    // pid_t cpid, w;
-    // int wstatus;
+    status = read_int(p.read_end, &xauth->namelen);
+    if (status != SUCCESS) goto cleanup;
 
-    // cpid = fork();
-    // if (cpid == -1) {
-    //     perror("fork");
-    //     return PAM_ABORT;
-    // }
+    char *name = malloc(xauth->namelen + 1);
+    status = read_string(p.read_end, name, xauth->namelen);
+    if (status != SUCCESS) goto cleanup;
+    xauth->name = name;
 
-    // if (cpid == 0) {            /* Code executed by child */
-    //     printf("Child PID is %jd\n", (intmax_t) getpid());
+    status = read_int(p.read_end, &xauth->datalen);
+    if (status != SUCCESS) goto cleanup;
 
-    //     printf("here\n");
-    //     // ??? why do I need to acquire the gil????
-    //     PyGILState_STATE gil_state = PyGILState_Ensure();
+    char *data = malloc(xauth->datalen);
+    status = read_bytes(p.read_end, data, xauth->datalen);
+    if (status != SUCCESS) goto cleanup;
+    xauth->data = data;
 
-    //     Py_FinalizeEx();
-    //     PyImport_AppendInittab("pam_python", PyInit_pam_python);
-    //     Py_Initialize();
-    //     gil_state = PyGILState_Ensure();
+    int retval = pam_set_item(pamh, item_type, xauth);
+    status = write_int(p.write_end, retval);
 
-    //     printf("PyImport_ImportModule\n");
-    //     PyObject* module = PyImport_ImportModule("pam_python");
-    //     if(module == NULL) {
-    //         printf("PyImport_ImportModule failed..\n");
-    //         PyGILState_Release(gil_state);
-    //         return PAM_ABORT;
-    //     }
+  cleanup:
+    if (item) free(name);
+    if (data) free(data);
+    if (xauth) free(xauth);
+    return status;
+  } else {
+    int len;
 
-    //     python_handle_request(pamh, flags, argc, argv, pam_fn_name);
+    status = read_int(p.read_end, &len);
+    ENSURE(status);
 
-    //     PyGILState_Release(gil_state);
-    //     Py_FinalizeEx();
-    //     exit(PAM_SUCCESS);
+    char *item = malloc(len + 1);
+    if (!item) return MALLOC_ERR;
 
-    // } else {                    /* Code executed by parent */
-    //     do {
-    //         w = waitpid(cpid, &wstatus, WUNTRACED | WCONTINUED);
-    //         if (w == -1) {
-    //             perror("waitpid");
-    //             return PAM_ABORT;
-    //         }
+    status = read_string(p.read_end, item, len);
+    if (status != PAM_SUCCESS) {
+      free(item);
+      return status;
+    }
 
-    //         if (WIFEXITED(wstatus)) {
-    //             printf("exited, status=%d\n", WEXITSTATUS(wstatus));
-    //         } else if (WIFSIGNALED(wstatus)) {
-    //             printf("killed by signal %d\n", WTERMSIG(wstatus));
-    //         } else if (WIFSTOPPED(wstatus)) {
-    //             printf("stopped by signal %d\n", WSTOPSIG(wstatus));
-    //         } else if (WIFCONTINUED(wstatus)) {
-    //             printf("continued\n");
-    //         }
-    //     } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
-    //     return PAM_SUCCESS;
-    // }
+    int retval = pam_set_item(pamh, item_type, (const void *)item);
+    status = write_int(p.write_end, retval);
+    return status;
+  }
+}
 
-    // printf("HANDLING REQUEST\n");
-    // n_simultaneous_requests++;
-    // printf("Increased reqeusts\n");
-    // register_cleanup(pamh);
-    // printf("registered cleanup\n");
-    // // if(!Py_IsInitialized()) {
-    // //     initialize(pamh);
-    // // }
+static enum Status set_fail_delay(pam_handle_t *pamh, struct ipc_pipe p) {
+  int delay;
+  enum Status status;
 
-    // printf("aqcuiring lock\n");
+  read_int(p.read_end, &delay);
+  ENSURE(status);
 
-    // PyGILState_STATE gil_state = PyGILState_Ensure();
-    // printf("PyImport_AppendInittab\n");
-    
-    // int ret = PyImport_AppendInittab("pam_python", PyInit_pam_python);
-    // printf("ret: %d\n", ret);
-    // printf("PyImport_ImportModule\n");
-    // PyObject* module = PyImport_ImportModule("pam_python");
-    // if(module == NULL) {
-    //     printf("PyImport_ImportModule failed..\n");
-    //     PyGILState_Release(gil_state);
-    //     return PAM_ABORT;
-    // }
+  int retval = pam_fail_delay(pamh, delay);
 
-    // printf("calling module././\n");
+  status = write_int(p.write_end, retval);
+  ENSURE(status);
 
-    // int retval = python_handle_request(pamh, flags, argc, argv, pam_fn_name);
-    // PyGILState_Release(gil_state);
+  return SUCCESS;
+}
 
-    // if(PyErr_Occurred() != NULL) {
-    //     return err_return;
-    // }
-    // return retval;
+static int converse(pam_handle_t *pamh, struct ipc_pipe p) {
+  int status, retval, num_msgs;
+  read_int(p.read_end, &num_msgs);
+  struct pam_conv *conv;
+
+  retval = pam_get_item(pamh, PAM_CONV, (const void **)&conv);
+  if (retval != PAM_SUCCESS) {
+    status = write_int(p.write_end, retval);
+    return status;
+  }
+
+  struct pam_message **msgs = malloc(num_msgs * sizeof(struct pam_message *));
+  for (int i = 0; i < num_msgs; i++) {
+    msgs[i] = malloc(sizeof(struct pam_message));
+    read_int(p.read_end, &msgs[i]->msg_style);
+    int len;
+    read_int(p.read_end, &len);
+    msgs[i]->msg = malloc(len + 1);
+    read_string(p.read_end, (char *)msgs[i]->msg, len);
+  }
+
+  struct pam_response *resps;
+  retval = conv->conv(num_msgs, (const struct pam_message **)msgs, &resps, conv->appdata_ptr);
+  if (retval != PAM_SUCCESS) {
+    write_int(p.write_end, retval);
+    for (int i = 0; i < num_msgs; i++) {
+      free((char *)msgs[i]->msg);
+      free(msgs[i]);
+    }
+    free(msgs);
+    return;
+  }
+
+  for (int i = 0; i < num_msgs; i++) {
+    free((char *)msgs[i]->msg);
+    free(msgs[i]);
+  }
+  free(msgs);
+
+  write_int(p.write_end, PAM_SUCCESS);
+
+  for (int i = 0; i < num_msgs; i++) {
+    write_int(p.write_end, resps[i].resp_retcode);
+    if (!resps[i].resp) {
+      write_int(p.write_end, 0);
+    } else {
+      int len = strlen(resps[i].resp);
+      write_int(p.write_end, len);
+      write_string(p.write_end, resps[i].resp, len);
+      // We are responsible for freeing the responses
+      // # Overwrite and free the response
+      // # Overwriting ensures we don't leak any sensitive data like passwords
+      memset(resps[i].resp, 0, len);
+      free(resps[i].resp);
+    }
+  }
+  free(resps);
+}
+
+static int get_error_description(pam_handle_t *pamh, struct ipc_pipe p) {
+  int status, errnum;
+
+  status = read_int(p.read_end, &errnum);
+  ENSURE(status);
+
+  const char *str = pam_strerror(pamh, errnum);
+
+  status = write_int(p.write_end, strlen(str));
+  ENSURE(status);
+
+  status = write_string(p.write_end, (char *)str, strlen(str));
+  ENSURE(status);
+
+  return SUCCESS;
+}
+
+static int log_to_syslog(pam_handle_t *pamh, struct ipc_pipe p) {
+  int status, priority, len;
+  char *msg;
+
+  status = read_int(p.read_end, &priority);
+  ENSURE(status);
+
+  status = read_int(p.read_end, &len);
+  ENSURE(status);
+
+  msg = malloc(len + 1);
+  if (!msg) return MALLOC_ERR;
+
+  status = read_string(p.read_end, msg, len);
+  if (status != SUCCESS) {
+    free(msg);
+    return status;
+  }
+
+  pam_syslog(pamh, priority, "%s", msg);
+
+  free(msg);
+  return SUCCESS;
+}
+
+static void execute_child(struct ipc_pipe child, int flags, int argc, char const **argv, char *pam_fn_name) {
+  const int err_return = get_default_err(pam_fn_name);
+  // ??? why do I need to acquire the gil????
+  PyGILState_STATE gil_state;
+  if (Py_IsInitialized()) {
+    PyGILState_Ensure();
+    Py_FinalizeEx();
+  }
+
+  PyImport_AppendInittab("pam_python", PyInit_pam_python);
+  Py_Initialize();
+  gil_state = PyGILState_Ensure();
+
+  printf("PyImport_ImportModule\n");
+  PyObject *module = PyImport_ImportModule("pam_python");
+  if (module == NULL) {
+    printf("PyImport_ImportModule failed..\n");
+    PyGILState_Release(gil_state);
+    _exit(err_return);
+  }
+
+  int retval = python_handle_request(child.read_end, child.write_end, flags, argc, argv, pam_fn_name);
+  if (PyErr_Occurred()) {
+    retval = err_return;
+  }
+
+  PyGILState_Release(gil_state);
+  Py_FinalizeEx();
+  _exit(retval);
+}
+
+static int execute_parent(pam_handle_t *pamh, struct ipc_pipe parent, char *pam_fn_name) {
+  const int err_return = get_default_err(pam_fn_name);
+  while (true) {
+    int status, method_type;
+
+    status = read_int(parent.read_end, &method_type);
+
+    if (status == READ_EOF) {
+      return PAM_SUCCESS;
+    } else if (status != SUCCESS) {
+      return err_return;
+    }
+
+    if (method_type == _PAM_METHOD_GET_ITEM) {
+      get_item(pamh, parent);
+    } else if (method_type == _PAM_METHOD_SET_ITEM) {
+      set_item(pamh, parent);
+    } else if (method_type == _PAM_METHOD_FAIL_DELAY) {
+      set_fail_delay(pamh, parent);
+    } else if (method_type == _PAM_METHOD_CONVERSE) {
+      converse(pamh, parent);
+    } else if (method_type == _PAM_METHOD_STRERROR) {
+      status = get_error_description(pamh, parent);
+      ENSURE(status, err_return);
+    } else if (method_type == _PAM_METHOD_SYSLOG) {
+      status = log_to_syslog(pamh, parent);
+      ENSURE(status, err_return);
+    } else {
+      pam_syslog(pamh, LOG_ERR, "Unknown method type: %d", method_type);
+      return err_return;
+    }
+  }
+}
+
+int handle_request(char *pam_fn_name, pam_handle_t *pamh, int flags, int argc, char const **argv) {
+  const int err_return = get_default_err(pam_fn_name);
+  struct pam_conv pamc;
+  pamc.conv = _converse;
+
+  pam_set_item(pamh, PAM_CONV, &pamc);
+
+  int parent_child[2];
+  int child_parent[2];
+
+  pipe(parent_child);
+  pipe(child_parent);
+
+  struct ipc_pipe parent = {child_parent[0], parent_child[1]};
+  struct ipc_pipe child = {parent_child[0], child_parent[1]};
+
+  int pid = fork();
+  if (pid == -1) {
+    pam_syslog(pamh, LOG_ERR, "Failed to fork: %s", strerror(errno));
+    return err_return;
+  }
+
+  if (pid == 0) { /* Code executed by child */
+    close(parent_child[1]);
+    close(child_parent[0]);
+    execute_child(child, flags, argc, argv, pam_fn_name);
+  } else {
+    close(parent_child[0]);
+    close(child_parent[1]); /* Code executed by parent */
+
+    const ret_parent = execute_parent(pamh, parent);
+    int ret_child;
+    waitpid(0, &ret_child, 0);
+    if (ret_parent != PAM_SUCCESS) {
+      return ret_parent;
+    } else {
+      return ret_child;
+    }
+  }
 }
 
 int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char **argv) {
-    printf("Hello from pam! %s\n", libpython_so);
-    handle_request(pamh, flags, argc, argv, "pam_sm_authenticate", PAM_AUTH_ERR);
-    printf("handled\n");
-
-    if(PyErr_Occurred()) {
-        printf("ERRRRRR\n");
-        PyErr_Print();
-    }
-    return PAM_SUCCESS;
+  return handle_request("pam_sm_authenticate", pamh, flags, argc, argv);
 }
 
-PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char **argv) {
-    return handle_request(pamh, flags, argc, argv, "pam_sm_setcred", PAM_CRED_ERR);
+int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+  return handle_request("pam_sm_setcred", pamh, flags, argc, argv);
 }
 
-PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
-    return handle_request(pamh, flags, argc, argv, "pam_sm_acct_mgmt", PAM_AUTH_ERR);
+int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+  return handle_request("pam_sm_acct_mgmt", pamh, flags, argc, argv);
 }
 
-PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, const char **argv) {
-    return handle_request(pamh, flags, argc, argv, "pam_sm_open_session", PAM_SESSION_ERR);
+int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+  return handle_request("pam_sm_open_session", pamh, flags, argc, argv);
 }
 
-PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc, const char **argv) {
-    return handle_request(pamh, flags, argc, argv, "pam_sm_close_session", PAM_SESSION_ERR);
+int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+  return handle_request("pam_sm_close_session", pamh, flags, argc, argv);
 }
 
-PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, const char **argv) {
-    return handle_request(pamh, flags, argc, argv, "pam_sm_chauthtok", PAM_AUTHTOK_ERR);
+int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+  return handle_request("pam_sm_chauthtok", pamh, flags, argc, argv);
 }

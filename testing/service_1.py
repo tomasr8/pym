@@ -3,5 +3,5 @@ import threading
 
 from pam import authenticate
 
-authenticate('ken', 'b', 'test-service-1')
 
+authenticate('ken', 'b', 'test-service-1')

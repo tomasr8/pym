@@ -5,12 +5,11 @@ from typing import List, Union
 
 class PamException(Exception):
     def __init__(self, err_num: int, description: str, *args, **kwargs) -> None: ...
-    def __str__(self) -> str: ...
 
 @dataclass
 class XAuthData:
     name: str
-    data: str
+    data: bytes
 
 @dataclass
 class Message:

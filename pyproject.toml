@@ -25,7 +25,7 @@ keywords = [
     "Python PAM",
     "PAM Python"
 ]
-dependencies = []
+dependencies = ["click"]
 requires-python = ">=3.8"
 
 [tool.setuptools.dynamic]

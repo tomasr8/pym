@@ -12,7 +12,8 @@
 #define _FAIL_DELAY 2
 #define _PAM_GET_USER 2
 #define _CONVERSE 3
-
+#define READ_SUCCESS 0
+#define ENSURE(x) if(x !== READ_SUCCESS) return x;
 
 bool is_child;
 
@@ -209,6 +210,9 @@ int main(void) {
 
     struct ipc_pipe parent = {child_parent[0], parent_child[1]};
     struct ipc_pipe child = {parent_child[0], child_parent[1]};
+
+    int status = 2;
+    ENSURE(status);
 
     pid_t pid = fork();
     if (pid == -1) {

@@ -1,11 +1,10 @@
+#cython: language_level=3
+
 import importlib
-from dataclasses import dataclass
-
-import cython
-
-from libc.stdlib cimport free, malloc
-
+import importlib.util
+import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from syslog import LOG_DEBUG, LOG_ERR
 from typing import List, Union
@@ -86,32 +85,15 @@ cdef extern from "<security/pam_modules.h>":
     cdef int _PAM_DATA_REPLACE "PAM_DATA_REPLACE"
     cdef int _PAM_DATA_SILENT "PAM_DATA_SILENT"
 
-    cdef struct pam_message:
-        int msg_style
-        const char *msg
-    cdef struct pam_response:
-        char *resp
-        int resp_retcode
-    cdef struct pam_conv:
-        int (*conv)(int, const pam_message **, pam_response **, void *)
-        void *appdata_ptr
-    cdef struct pam_xauth_data:
-        int namelen
-        char *name
-        int datalen
-        char *data
-    ctypedef struct pam_handle_t:
-        pass
 
-    int pam_set_item(pam_handle_t *pamh, int item_type, const void *item)
-    int pam_get_item(const pam_handle_t *pamh, int item_type, const void **item)
-    int pam_get_user(const pam_handle_t *pamh, const char **user, const char *prompt)
-    int pam_fail_delay(pam_handle_t *pamh, unsigned int usec)
-    const char *pam_strerror(pam_handle_t *pamh, int err_num)
-
-
-cdef extern from "<security/pam_ext.h>":
-    void pam_syslog(pam_handle_t *pamh, int priority, const char *fmt, ...)
+cdef extern from "pipe.h":
+    cdef int _PAM_METHOD_GET_ITEM
+    cdef int _PAM_METHOD_SET_ITEM
+    cdef int _PAM_METHOD_FAIL_DELAY
+    cdef int _PAM_METHOD_GET_USER
+    cdef int _PAM_METHOD_CONVERSE
+    cdef int _PAM_METHOD_STERROR
+    cdef int _PAM_METHOD_SYSLOG
 
 
 class PamException(Exception):
@@ -141,7 +123,7 @@ class XAuthData:
     """Python equivalent for the 'pam_xauth_data' struct from _pam_types.h"""
 
     name: str
-    data: str
+    data: bytes
 
 
 @dataclass
@@ -160,14 +142,41 @@ class Response:
     resp_retcode: int
 
 
-cdef class PamHandle:
+def read_bytes(f, n):
+    total_read = 0
+    data = bytearray()
+    while total_read < n:
+        remaining = n - total_read
+        _data = f.read(remaining)
+        _data_len = len(_data)
+        if _data_len == 0:
+            raise EOFError
+        total_read += _data_len
+        data.extend(_data)
+    return bytes(data)
+
+def read_string(f, n):
+    return read_bytes(f, n).decode("utf-8")
+
+def read_int(f):
+    return int.from_bytes(read_bytes(f, 4), sys.byteorder)
+
+def write_bytes(f, data):
+    f.write(data)
+
+def write_string(f, string):
+    write_bytes(f, string.encode("utf-8"))
+
+def write_int(f, num):
+    write_bytes(f, num.to_bytes(4, sys.byteorder))
+
+class PamHandle:
     """Python wrapper for the PAM handle providing access to its properties
 
     Do not try to instantiate this in user code, the instance is passed
     as an argument in every pam_sm_* function.
     """
 
-    cdef pam_handle_t *_pamh
     PamException = PamException
     XAuthData = XAuthData
     Message = Message
@@ -244,14 +253,11 @@ cdef class PamHandle:
     PAM_DATA_REPLACE           = _PAM_DATA_REPLACE
     PAM_DATA_SILENT            = _PAM_DATA_SILENT
 
-    cdef set_handle(self, pam_handle_t *pamh):
-        self._pamh = pamh
+    locals()['prop'] = 123
 
-    @staticmethod
-    cdef create(pam_handle_t *pamh):
-        handle = PamHandle()
-        handle.set_handle(pamh)
-        return handle
+    def __init__(self, read_end, write_end):
+        self._read_end = os.fdopen(read_end, "rb")
+        self._write_end = os.fdopen(write_end, "wb", buffering=0) # Write data to the pipe immediately
 
     @property
     def service(self):
@@ -279,22 +285,29 @@ cdef class PamHandle:
 
     def get_user(self, prompt=None):
         """Wrapper for pam_get_user()"""
-        cdef char *user
-        if prompt is None:
-            retval = pam_get_user(self._pamh, <const char **>&user, NULL)
-        else:
-            prompt_bytes = prompt.encode("utf-8")
-            retval = pam_get_user(self._pamh, <const char **>&user, prompt_bytes)
+        write_int(self._write_end, _PAM_METHOD_GET_USER)
 
+        if prompt is None:
+            write_int(self._write_end, 0)
+        else:
+            assert isinstance(prompt, str)
+            write_int(self._write_end, len(prompt))
+            write_string(self._write_end, prompt)
+
+        retval = read_int(self._read_end)
         if retval != _PAM_SUCCESS:
             self.logger.log(f"Failed to get user [retval={retval}] {self.strerror(retval)}")
             raise self.PamException(err_num=retval, description=self.strerror(retval))
-        else:
-            return user.decode("utf-8")
+
+        length = read_int(self._read_end)
+        return read_string(self._read_end, length)
 
     def fail_delay(self, usec: int):
         """Set the fail delay"""
-        retval = pam_fail_delay(self._pamh, usec)
+        write_int(self._write_end, _PAM_METHOD_FAIL_DELAY)
+        write_int(self._write_end, usec)
+
+        retval = read_int(self._read_end)
         if retval != _PAM_SUCCESS:
             self.logger.log(f"Failed to set fail delay [retval={retval}] {self.strerror(retval)}")
             raise self.PamException(err_num=retval, description=self.strerror(retval))
@@ -304,50 +317,29 @@ cdef class PamHandle:
         if not isinstance(msgs, list):
             msgs = [msgs]
 
-        cdef pam_conv *conv = NULL
-        retval = pam_get_item(self._pamh, _PAM_CONV, <const void**>&conv)
+        write_int(self._write_end, _PAM_METHOD_CONVERSE)
+        write_int(self._write_end, len(msgs))
+
+        for msg in msgs:
+            write_int(self._write_end, msg.msg_style)
+            write_int(self._write_end, len(msg.msg))
+            write_string(self._write_end, msg.msg)
+
+        retval = read_int(self._read_end)
         if retval != _PAM_SUCCESS:
             self.logger.log(f"Error when getting _PAM_CONV [retval={retval}] {self.strerror(retval)}")
             raise self.PamException(err_num=retval, description=self.strerror(retval))
 
-        cdef pam_message **c_msgs = <pam_message **> malloc(len(msgs) * cython.sizeof(cython.pointer(pam_message)))
-        if not c_msgs:
-            self.logger.log("Failed to allocate memory for messages inside converse()")
-            raise MemoryError()
-
-        encoded_msgs = []
-        for i, msg in enumerate(msgs):
-            c_msgs[i] = <pam_message *> malloc(len(msgs) * sizeof(pam_message))
-            c_msgs[i].msg_style = msg.msg_style
-            # Keep a reference to the encoded messages so that
-            # python does not garbage collect them
-            encoded_msgs.append(msg.msg.encode("utf-8"))
-            c_msgs[i].msg = encoded_msgs[-1]
-
-        cdef pam_response *c_resps = NULL
-        conv.conv(len(msgs), <const pam_message **>c_msgs, &c_resps, conv.appdata_ptr)
-        # Deallocate c_msgs
-        for i, _ in enumerate(msgs):
-            free(c_msgs[i])
-        free(c_msgs)
-
-        # Convert responses ty python
-        # We are also responsible for freeing the C responses
         responses = []
-        for i, _ in enumerate(msgs):
-            if c_resps[i].resp == NULL:
-                resp = None
+        for _ in range(len(msgs)):
+            resp_retcode = read_int(self._read_end)
+            resp_len = read_int(self._read_end)
+            if resp_len == 0:
+                responses.append(Response(None, resp_retcode))
             else:
-                resp = c_resps[i].resp.decode("utf-8")
+                data = read_string(self._read_end, resp_len)
+                responses.append(Response(data, resp_retcode))
 
-            resp_retcode = c_resps[i].resp_retcode
-            responses.append(Response(resp, resp_retcode))
-            # Overwrite and free the response
-            # Overwriting ensures we don't leak any sensitive data like passwords
-            c_resps[i].resp[:] = 0
-            free(c_resps[i].resp)
-        # Free the struct array
-        free(c_resps)
         return responses
 
     def prompt(self, msg, msg_style=_PAM_PROMPT_ECHO_OFF):
@@ -355,73 +347,87 @@ cdef class PamHandle:
         if isinstance(msg, Message):
             return self.converse(msg)
         else:
+            assert isinstance(msg, str)
             return self.converse(Message(msg_style=msg_style, msg=msg))
 
     def strerror(self, err_num):
         """Get a description from an error number"""
-        cdef const char* err = pam_strerror(self._pamh, err_num)
-        return err.decode("utf-8")
+        write_int(self._write_end, _PAM_METHOD_STERROR)
+        write_int(self._write_end, err_num)
+        length = read_int(self._read_end)
+        return read_string(self._read_end, length)
 
     def log(self, msg, priority=LOG_ERR):
         """Wrapper for pam_syslog()"""
         print(msg)
-        # Make '-Werror=format-security' happy by passing an explicit format string (%s)
-        bytes_msg = msg.encode("utf-8")
-        pam_syslog(self._pamh, priority, "%s", <char *>bytes_msg)
+        assert isinstance(msg, str)
+        write_int(self._write_end, _PAM_METHOD_SYSLOG)
+        write_int(self._write_end, priority)
+        write_int(self._write_end, len(msg))
+        write_string(self._write_end, msg)
 
     def debug(self, msg: str):
         """log with a debug priority"""
-        self.log(str, msg, LOG_DEBUG)
+        self.log(msg, LOG_DEBUG)
 
     def _get_item(self, item_type):
-        cdef const char *item = NULL
-        cdef pam_xauth_data *xauth = NULL
-
         if item_type == _PAM_CONV or item_type == _PAM_FAIL_DELAY:
             # We don't allow accessing these items
             return None
         elif item_type == _PAM_XAUTHDATA:
-            retval = pam_get_item(self._pamh, _PAM_XAUTHDATA, <const void **>&xauth)
+            write_int(self._write_end, _PAM_METHOD_GET_ITEM)
+            write_int(self._write_end, item_type)
+            retval = read_int(self._read_end)
+
             if retval != _PAM_SUCCESS:
                 self.logger.log(f"Error when getting XAuthData [retval={retval}] {self.strerror(retval)}")
                 raise self.PamException(err_num=retval, description=self.strerror(retval))
 
-            namelen = xauth.namelen
-            datalen = xauth.datalen
-            name = xauth.name[:namelen].decode("utf-8")
-            data = xauth.data[:datalen].decode("utf-8")
+            namelen = read_int(self._read_end)
+            # print(f"[CH] namelen {namelen}")
+            name = read_string(self._read_end, namelen)
+            datalen = read_int(self._read_end)
+            # print(f"[CH] datalen {datalen}")
+            data = read_bytes(self._read_end, datalen)
             return XAuthData(name, data)
         else:
-            retval = pam_get_item(self._pamh, item_type, <const void **>&item)
+            write_int(self._write_end, _PAM_METHOD_GET_ITEM)
+            write_int(self._write_end, item_type)
+            retval = read_int(self._read_end)
+
             if retval != _PAM_SUCCESS:
                 self.logger.log(f"Error when getting item [item_type={item_type}, retval={retval}] {self.strerror(retval)}")
                 raise self.PamException(err_num=retval, description=self.strerror(retval))
-            return item.decode("utf-8")
+
+            length = read_int(self._read_end)
+            return read_string(self._read_end, length)
 
     def _set_item(self, item_type, item):
-        cdef char* c_string = NULL
-        cdef pam_xauth_data xauth
-
         if item_type == _PAM_CONV or item_type == _PAM_FAIL_DELAY:
             # We don't allow setting these items
             # Use fail_delay() or converse() instead
             pass
         elif item_type == _PAM_XAUTHDATA:
-            xauth.namelen = len(item.name)
-            xauth.datalen = len(item.data)
-            name_bytes = item.name.encode("utf-8")
-            data_bytes = item.data.encode("utf-8")
-            xauth.name = name_bytes
-            xauth.data = data_bytes
+            assert isinstance(item, XAuthData)
+            write_int(self._write_end, _PAM_METHOD_SET_ITEM)
+            write_int(self._write_end, item_type)
+            write_int(self._write_end, len(item.name))
+            write_string(self._write_end, item.name)
+            write_int(self._write_end, len(item.data))
+            write_bytes(self._write_end, item.data)
+            retval = read_int(self._read_end)
 
-            retval = pam_set_item(self._pamh, item_type, <const void*>&xauth)
             if retval != _PAM_SUCCESS:
                 self.logger.log(f"Error when setting XAuthData [retval={retval}] {self.strerror(retval)}")
                 raise self.PamException(err_num=retval, description=self.strerror(retval))
         else:
-            py_byte_string = item.encode("utf-8")
-            c_string = py_byte_string
-            retval = pam_set_item(self._pamh, item_type, <const void*>c_string)
+            assert isinstance(item, str)
+            write_int(self._write_end, _PAM_METHOD_SET_ITEM)
+            write_int(self._write_end, item_type)
+            write_int(self._write_end, len(item))
+            write_string(self._write_end, item)
+            retval = read_int(self._read_end)
+
             if retval != _PAM_SUCCESS:
                 self.logger.log(f"Error when setting item [item_type={item_type}, retval={retval}] {self.strerror(retval)}")
                 raise self.PamException(err_num=retval, description=self.strerror(retval))
@@ -446,48 +452,40 @@ ERRORS = {
     "pam_sm_chauthtok": _PAM_AUTHTOK_ERR
 }
 
-cdef public int _python_handle_request(int read_end, int write_end, int flags, int argc, const char ** argv, char *pam_fn_name):
-    return 0
 
-cdef public int python_handle_request(pam_handle_t *pamh, int flags, int argc, const char ** argv, char *pam_fn_name):
-    print("handling request..")
-    return 0
-    # pam_handle = PamHandle.create(pamh)
-    # fn_name = pam_fn_name.decode("utf-8")
+cdef public int python_handle_request(int read_end, int write_end, int flags, int argc, const char ** argv, char *pam_fn_name):
+    fn_name = pam_fn_name.decode("utf-8")
+    pam_handle = PamHandle(read_end, write_end)
 
-    # if argc == 0:
-    #     pam_handle.log("No python module provided")
-    #     return ERRORS[fn_name]
+    if argc == 0:
+        pam_handle.log("No python module provided")
+        return ERRORS[fn_name]
 
-    # args = []
-    # for i in range(argc):
-    #     args.append(argv[i].decode("utf-8"))
+    args = []
+    for i in range(argc):
+        args.append(argv[i].decode("utf-8"))
 
-    # pam_handle.debug(f"Importing {args[0]}")
-    # try:
-    #     module = _load_module(args[0])
-    # except Exception as e:
-    #     pam_handle.log(f"Failed to import python module: {e}")
-    #     return ERRORS[fn_name]
+    pam_handle.debug(f"Importing {args[0]}")
+    try:
+        module = _load_module(args[0])
+    except Exception as e:
+        pam_handle.log(f"Failed to import python module: {e}")
+        return ERRORS[fn_name]
 
+    handler = getattr(module, fn_name, None)
+    if handler is None:
+        pam_handle.log(f"No python handler provided for {fn_name}")
+        return ERRORS[fn_name]
 
-    # handler = getattr(module, fn_name, None)
-    # if handler is None:
-    #     pam_handle.log(f"No python handler provided for {fn_name}")
-    #     return ERRORS[fn_name]
+    try:
+        retval = handler(pam_handle, flags, args[1:])
+    except Exception as e:
+        pam_handle.log(f"Exception ocurred while running python handler: [flags={flags}, args={args[1:]}, fn_name={fn_name}]" +
+                       f"   Exception: {e}")
+        return ERRORS[fn_name]
 
-    # try:
-    #     retval = handler(pam_handle, flags, args[1:])
-    # except Exception as e:
-    #     pam_handle.log(f"Exception ocurred while running python handler: [flags={flags}, args={args[1:]}, fn_name={fn_name}]" +
-    #                f"   Exception: {e}")
-    #     return ERRORS[fn_name]
-
-    # if not isinstance(retval, int):
-    #     pam_handle.log(f"Return value must be an integer, received {type(retval)} [value={retval}]")
-    #     return ERRORS[fn_name]
-    # else:
-    #     return retval
-
-cdef public print_hello():
-    print("_PAM_SUCCESS", _PAM_SUCCESS, _PAM_OPEN_ERR)
+    if not isinstance(retval, int):
+        pam_handle.log(f"Return value must be an integer, received {type(retval)} [value={retval}]")
+        return ERRORS[fn_name]
+    else:
+        return retval

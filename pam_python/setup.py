@@ -2,13 +2,14 @@
 import warnings; warnings.simplefilter('default')
 
 import distutils.sysconfig
-import os 
+import os
 import sys
 
+
 try:
-  from setuptools import setup, Extension
+  from setuptools import Extension, setup
 except ImportError:
-  from distutils.core import setup, Extension
+  from distutils.core import Extension, setup
 
 long_description = """\
 Embeds the Python interpreter into PAM \
