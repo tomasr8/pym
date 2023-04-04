@@ -145,7 +145,7 @@ static int get_item(pam_handle_t *pamh, struct ipc_pipe p) {
 static int set_item(pam_handle_t *pamh, struct ipc_pipe p) {
   int item_type;
   int status = read_int(p.read_end, &item_type);
-  ENSURE(retval);
+  ENSURE(status);
 
   if (item_type == PAM_XAUTHDATA) {
     struct pam_xauth_data *xauth = malloc(sizeof(struct pam_xauth_data));
@@ -154,25 +154,31 @@ static int set_item(pam_handle_t *pamh, struct ipc_pipe p) {
     status = read_int(p.read_end, &xauth->namelen);
     if (status != SUCCESS) goto cleanup;
 
-    char *name = malloc(xauth->namelen + 1);
+    xauth->name = malloc(xauth->namelen + 1);
+    if (!xauth->name) {
+        status = MALLOC_ERR;
+        goto cleanup;
+    }
     status = read_string(p.read_end, name, xauth->namelen);
     if (status != SUCCESS) goto cleanup;
-    xauth->name = name;
 
     status = read_int(p.read_end, &xauth->datalen);
     if (status != SUCCESS) goto cleanup;
 
-    char *data = malloc(xauth->datalen);
+    xauth->data = malloc(xauth->datalen);
+    if (xauth->data) {
+        status = MALLOC_ERR;
+        goto cleanup;
+    }
     status = read_bytes(p.read_end, data, xauth->datalen);
     if (status != SUCCESS) goto cleanup;
-    xauth->data = data;
 
     int retval = pam_set_item(pamh, item_type, xauth);
     status = write_int(p.write_end, retval);
 
   cleanup:
-    if (item) free(name);
-    if (data) free(data);
+    if (xauth->name) free(xauth->name);
+    if (xauth->data) free(xauth->data);
     if (xauth) free(xauth);
     return status;
   } else {
@@ -185,26 +191,25 @@ static int set_item(pam_handle_t *pamh, struct ipc_pipe p) {
     if (!item) return MALLOC_ERR;
 
     status = read_string(p.read_end, item, len);
-    if (status != PAM_SUCCESS) {
+    if (status != SUCCESS) {
       free(item);
       return status;
     }
 
     int retval = pam_set_item(pamh, item_type, (const void *)item);
     status = write_int(p.write_end, retval);
+    free(item);
     return status;
   }
 }
 
-static enum Status set_fail_delay(pam_handle_t *pamh, struct ipc_pipe p) {
-  int delay;
-  enum Status status;
+static int set_fail_delay(pam_handle_t *pamh, struct ipc_pipe p) {
+  int status, delay;
 
-  read_int(p.read_end, &delay);
+  status = read_int(p.read_end, &delay);
   ENSURE(status);
 
   int retval = pam_fail_delay(pamh, delay);
-
   status = write_int(p.write_end, retval);
   ENSURE(status);
 
