@@ -9,91 +9,104 @@ from pathlib import Path
 from syslog import LOG_DEBUG, LOG_ERR
 from typing import List, Union
 
+from pam_python import io
 
 cdef extern from "<security/pam_appl.h>":
     pass
 
 cdef extern from "<security/pam_modules.h>":
     # Return values
-    cdef int _PAM_SUCCESS "PAM_SUCCESS"
-    cdef int _PAM_OPEN_ERR "PAM_OPEN_ERR"
-    cdef int _PAM_SYMBOL_ERR "PAM_SYMBOL_ERR"
-    cdef int _PAM_SERVICE_ERR "PAM_SERVICE_ERR"
-    cdef int _PAM_SYSTEM_ERR "PAM_SYSTEM_ERR"
-    cdef int _PAM_BUF_ERR "PAM_BUF_ERR"
-    cdef int _PAM_PERM_DENIED "PAM_PERM_DENIED"
-    cdef int _PAM_AUTH_ERR "PAM_AUTH_ERR"
-    cdef int _PAM_CRED_INSUFFICIENT "PAM_CRED_INSUFFICIENT"
-    cdef int _PAM_AUTHINFO_UNAVAIL "PAM_AUTHINFO_UNAVAIL"
-    cdef int _PAM_USER_UNKNOWN "PAM_USER_UNKNOWN"
-    cdef int _PAM_MAXTRIES "PAM_MAXTRIES"
-    cdef int _PAM_NEW_AUTHTOK_REQD "PAM_NEW_AUTHTOK_REQD"
-    cdef int _PAM_ACCT_EXPIRED "PAM_ACCT_EXPIRED"
-    cdef int _PAM_SESSION_ERR "PAM_SESSION_ERR"
-    cdef int _PAM_CRED_UNAVAIL "PAM_CRED_UNAVAIL"
-    cdef int _PAM_CRED_EXPIRED "PAM_CRED_EXPIRED"
-    cdef int _PAM_CRED_ERR "PAM_CRED_ERR"
-    cdef int _PAM_NO_MODULE_DATA "PAM_NO_MODULE_DATA"
-    cdef int _PAM_CONV_ERR "PAM_CONV_ERR"
-    cdef int _PAM_AUTHTOK_ERR "PAM_AUTHTOK_ERR"
-    cdef int _PAM_AUTHTOK_RECOVERY_ERR "PAM_AUTHTOK_RECOVERY_ERR"
-    cdef int _PAM_AUTHTOK_LOCK_BUSY "PAM_AUTHTOK_LOCK_BUSY"
-    cdef int _PAM_AUTHTOK_DISABLE_AGING "PAM_AUTHTOK_DISABLE_AGING"
-    cdef int _PAM_TRY_AGAIN "PAM_TRY_AGAIN"
-    cdef int _PAM_IGNORE "PAM_IGNORE"
-    cdef int _PAM_ABORT "PAM_ABORT"
-    cdef int _PAM_AUTHTOK_EXPIRED "PAM_AUTHTOK_EXPIRED"
-    cdef int _PAM_MODULE_UNKNOWN "PAM_MODULE_UNKNOWN"
-    cdef int _PAM_BAD_ITEM "PAM_BAD_ITEM"
-    cdef int _PAM_CONV_AGAIN "PAM_CONV_AGAIN"
-    cdef int _PAM_INCOMPLETE "PAM_INCOMPLETE"
+    cdef int PAM_SUCCESS
+    cdef int PAM_OPEN_ERR
+    cdef int PAM_SYMBOL_ERR
+    cdef int PAM_SERVICE_ERR
+    cdef int PAM_SYSTEM_ERR
+    cdef int PAM_BUF_ERR
+    cdef int PAM_PERM_DENIED
+    cdef int PAM_AUTH_ERR
+    cdef int PAM_CRED_INSUFFICIENT
+    cdef int PAM_AUTHINFO_UNAVAIL
+    cdef int PAM_USER_UNKNOWN
+    cdef int PAM_MAXTRIES
+    cdef int PAM_NEW_AUTHTOK_REQD
+    cdef int PAM_ACCT_EXPIRED
+    cdef int PAM_SESSION_ERR
+    cdef int PAM_CRED_UNAVAIL
+    cdef int PAM_CRED_EXPIRED
+    cdef int PAM_CRED_ERR
+    cdef int PAM_NO_MODULE_DATA
+    cdef int PAM_CONV_ERR
+    cdef int PAM_AUTHTOK_ERR
+    cdef int PAM_AUTHTOK_RECOVERY_ERR
+    cdef int PAM_AUTHTOK_LOCK_BUSY
+    cdef int PAM_AUTHTOK_DISABLE_AGING
+    cdef int PAM_TRY_AGAIN
+    cdef int PAM_IGNORE
+    cdef int PAM_ABORT
+    cdef int PAM_AUTHTOK_EXPIRED
+    cdef int PAM_MODULE_UNKNOWN
+    cdef int PAM_BAD_ITEM
+    cdef int PAM_CONV_AGAIN
+    cdef int PAM_INCOMPLETE
     # Flags
-    cdef int _PAM_SILENT "PAM_SILENT"
-    cdef int _PAM_DISALLOW_NULL_AUTHTOK "PAM_DISALLOW_NULL_AUTHTOK"
-    cdef int _PAM_ESTABLISH_CRED "PAM_ESTABLISH_CRED"
-    cdef int _PAM_DELETE_CRED "PAM_DELETE_CRED"
-    cdef int _PAM_REINITIALIZE_CRED "PAM_REINITIALIZE_CRED"
-    cdef int _PAM_REFRESH_CRED "PAM_REFRESH_CRED"
-    cdef int _PAM_CHANGE_EXPIRED_AUTHTOK "PAM_CHANGE_EXPIRED_AUTHTOK"
+    cdef int PAM_SILENT
+    cdef int PAM_DISALLOW_NULL_AUTHTOK
+    cdef int PAM_ESTABLISH_CRED
+    cdef int PAM_DELETE_CRED
+    cdef int PAM_REINITIALIZE_CRED
+    cdef int PAM_REFRESH_CRED
+    cdef int PAM_CHANGE_EXPIRED_AUTHTOK
     # Internal flags
-    cdef int _PAM_PRELIM_CHECK "PAM_PRELIM_CHECK"
-    cdef int _PAM_UPDATE_AUTHTOK "PAM_UPDATE_AUTHTOK"
+    cdef int PAM_PRELIM_CHECK
+    cdef int PAM_UPDATE_AUTHTOK
     # Item types
-    cdef int _PAM_SERVICE    "PAM_SERVICE   "
-    cdef int _PAM_USER "PAM_USER"
-    cdef int _PAM_TTY   "PAM_TTY  "
-    cdef int _PAM_RHOST "PAM_RHOST"
-    cdef int _PAM_CONV "PAM_CONV"
-    cdef int _PAM_AUTHTOK "PAM_AUTHTOK"
-    cdef int _PAM_OLDAUTHTOK "PAM_OLDAUTHTOK"
-    cdef int _PAM_RUSER "PAM_RUSER"
-    cdef int _PAM_USER_PROMPT "PAM_USER_PROMPT"
+    cdef int PAM_SERVICE   
+    cdef int PAM_USER
+    cdef int PAM_TTY  
+    cdef int PAM_RHOST
+    cdef int PAM_CONV
+    cdef int PAM_AUTHTOK
+    cdef int PAM_OLDAUTHTOK
+    cdef int PAM_RUSER
+    cdef int PAM_USER_PROMPT
     # Linux-PAM item type extensions
-    cdef int _PAM_FAIL_DELAY "PAM_FAIL_DELAY"
-    cdef int _PAM_XDISPLAY "PAM_XDISPLAY"
-    cdef int _PAM_XAUTHDATA "PAM_XAUTHDATA"
-    cdef int _PAM_AUTHTOK_TYPE "PAM_AUTHTOK_TYPE"
+    cdef int PAM_FAIL_DELAY
+    cdef int PAM_XDISPLAY
+    cdef int PAM_XAUTHDATA
+    cdef int PAM_AUTHTOK_TYPE
     # Message styles (pam_message)
-    cdef int _PAM_PROMPT_ECHO_OFF "PAM_PROMPT_ECHO_OFF"
-    cdef int _PAM_PROMPT_ECHO_ON "PAM_PROMPT_ECHO_ON"
-    cdef int _PAM_ERROR_MSG "PAM_ERROR_MSG"
-    cdef int _PAM_TEXT_INFO  "PAM_TEXT_INFO "
-    # Linux-Pam message style extensions
-    cdef int _PAM_RADIO_TYPE "PAM_RADIO_TYPE"
-    cdef int _PAM_BINARY_PROMPT "PAM_BINARY_PROMPT"
+    cdef int PAM_PROMPT_ECHO_OFF
+    cdef int PAM_PROMPT_ECHO_ON
+    cdef int PAM_ERROR_MSG
+    cdef int PAM_TEXT_INFO 
+    # Linux-PAM message style extensions
+    cdef int PAM_RADIO_TYPE
+    cdef int PAM_BINARY_PROMPT
     # Linux-PAM pam_set_data cleanup error_status
-    cdef int _PAM_DATA_REPLACE "PAM_DATA_REPLACE"
-    cdef int _PAM_DATA_SILENT "PAM_DATA_SILENT"
+    cdef int PAM_DATA_REPLACE
+    cdef int PAM_DATA_SILENT
 
 
-cdef extern from "pipe.h":
-    cdef int _PAM_METHOD_GET_ITEM
-    cdef int _PAM_METHOD_SET_ITEM
-    cdef int _PAM_METHOD_FAIL_DELAY
-    cdef int _PAM_METHOD_GET_USER
-    cdef int _PAM_METHOD_CONVERSE
-    cdef int _PAM_METHOD_STERROR
-    cdef int _PAM_METHOD_SYSLOG
+cdef extern from "pam.h":
+    cdef int PAM_PYTHON_GET_ITEM
+    cdef int PAM_PYTHON_SET_ITEM
+    cdef int PAM_PYTHON_FAIL_DELAY
+    cdef int PAM_PYTHON_GET_USER
+    cdef int PAM_PYTHON_CONVERSE
+    cdef int PAM_PYTHON_STERROR
+    cdef int PAM_PYTHON_SYSLOG
+
+
+# Based on pam_deny.so
+# https://github.com/linux-pam/linux-pam/blob/master/modules/pam_deny/pam_deny.c
+default_errors = {
+    "pam_sm_authenticate": PAM_AUTH_ERR,
+    "pam_sm_setcred": PAM_CRED_ERR,
+    "pam_sm_acct_mgmt": PAM_AUTH_ERR,
+    "pam_sm_open_session": PAM_SESSION_ERR,
+    "pam_sm_close_session": PAM_SESSION_ERR,
+    "pam_sm_chauthtok": PAM_AUTHTOK_ERR
+}
 
 
 class PamException(Exception):
@@ -142,33 +155,44 @@ class Response:
     resp_retcode: int
 
 
-def read_bytes(f, n):
-    total_read = 0
-    data = bytearray()
-    while total_read < n:
-        remaining = n - total_read
-        _data = f.read(remaining)
-        _data_len = len(_data)
-        if _data_len == 0:
-            raise EOFError
-        total_read += _data_len
-        data.extend(_data)
-    return bytes(data)
+def exit_on_io_error(f):
+    def _check_errors(self: PamHandle, *args, **kwargs):
+        try:
+            return f(self, *args, **kwargs)
+        except (EOFError, IOError):
+            sys.exit(default_errors[self.pam_fn_name])
 
-def read_string(f, n):
-    return read_bytes(f, n).decode("utf-8")
+    return _check_errors
 
-def read_int(f):
-    return int.from_bytes(read_bytes(f, 4), sys.byteorder)
 
-def write_bytes(f, data):
-    f.write(data)
+class IPCWrapper:
+    def __init__(self, read_fd, write_fd):
+        self.read_end = os.fdopen(read_fd, "rb")
+        self.write_end = os.fdopen(write_fd, "wb", buffering=0) # Write data to the pipe immediately
 
-def write_string(f, string):
-    write_bytes(f, string.encode("utf-8"))
+    @exit_on_io_error
+    def read_bytes(self, n):
+        return io.read_bytes(self.read_end, n)
 
-def write_int(f, num):
-    write_bytes(f, num.to_bytes(4, sys.byteorder))
+    @exit_on_io_error
+    def read_int(self):
+        return io.read_int(self.read_end)
+
+    @exit_on_io_error
+    def read_string(self, n):
+        return io.read_string(self.read_end, n)
+
+    @exit_on_io_error
+    def write_bytes(self):
+        return io.write_bytes(self.write_end)
+
+    @exit_on_io_error
+    def write_int(self):
+        return io.write_int(self.write_end)
+
+    @exit_on_io_error
+    def write_string(self):
+        return io.write_string(self.write_end)
 
 class PamHandle:
     """Python wrapper for the PAM handle providing access to its properties
@@ -183,132 +207,130 @@ class PamHandle:
     Response = Response
 
     # Return values
-    PAM_SUCCESS                = _PAM_SUCCESS
-    PAM_OPEN_ERR               = _PAM_OPEN_ERR
-    PAM_SYMBOL_ERR             = _PAM_SYMBOL_ERR
-    PAM_SERVICE_ERR            = _PAM_SERVICE_ERR
-    PAM_SYSTEM_ERR             = _PAM_SYSTEM_ERR
-    PAM_BUF_ERR                = _PAM_BUF_ERR
-    PAM_PERM_DENIED            = _PAM_PERM_DENIED
-    PAM_AUTH_ERR               = _PAM_AUTH_ERR
-    PAM_CRED_INSUFFICIENT      = _PAM_CRED_INSUFFICIENT
-    PAM_AUTHINFO_UNAVAIL       = _PAM_AUTHINFO_UNAVAIL
-    PAM_USER_UNKNOWN           = _PAM_USER_UNKNOWN
-    PAM_MAXTRIES               = _PAM_MAXTRIES
-    PAM_NEW_AUTHTOK_REQD       = _PAM_NEW_AUTHTOK_REQD
-    PAM_ACCT_EXPIRED           = _PAM_ACCT_EXPIRED
-    PAM_SESSION_ERR            = _PAM_SESSION_ERR
-    PAM_CRED_UNAVAIL           = _PAM_CRED_UNAVAIL
-    PAM_CRED_EXPIRED           = _PAM_CRED_EXPIRED
-    PAM_CRED_ERR               = _PAM_CRED_ERR
-    PAM_NO_MODULE_DATA         = _PAM_NO_MODULE_DATA
-    PAM_CONV_ERR               = _PAM_CONV_ERR
-    PAM_AUTHTOK_ERR            = _PAM_AUTHTOK_ERR
-    PAM_AUTHTOK_RECOVERY_ERR   = _PAM_AUTHTOK_RECOVERY_ERR
-    PAM_AUTHTOK_LOCK_BUSY      = _PAM_AUTHTOK_LOCK_BUSY
-    PAM_AUTHTOK_DISABLE_AGING  = _PAM_AUTHTOK_DISABLE_AGING
-    PAM_TRY_AGAIN              = _PAM_TRY_AGAIN
-    PAM_IGNORE                 = _PAM_IGNORE
-    PAM_ABORT                  = _PAM_ABORT
-    PAM_AUTHTOK_EXPIRED        = _PAM_AUTHTOK_EXPIRED
-    PAM_MODULE_UNKNOWN         = _PAM_MODULE_UNKNOWN
-    PAM_BAD_ITEM               = _PAM_BAD_ITEM
-    PAM_CONV_AGAIN             = _PAM_CONV_AGAIN
-    PAM_INCOMPLETE             = _PAM_INCOMPLETE
+    PAM_SUCCESS                = PAM_SUCCESS
+    PAM_OPEN_ERR               = PAM_OPEN_ERR
+    PAM_SYMBOL_ERR             = PAM_SYMBOL_ERR
+    PAM_SERVICE_ERR            = PAM_SERVICE_ERR
+    PAM_SYSTEM_ERR             = PAM_SYSTEM_ERR
+    PAM_BUF_ERR                = PAM_BUF_ERR
+    PAM_PERM_DENIED            = PAM_PERM_DENIED
+    PAM_AUTH_ERR               = PAM_AUTH_ERR
+    PAM_CRED_INSUFFICIENT      = PAM_CRED_INSUFFICIENT
+    PAM_AUTHINFO_UNAVAIL       = PAM_AUTHINFO_UNAVAIL
+    PAM_USER_UNKNOWN           = PAM_USER_UNKNOWN
+    PAM_MAXTRIES               = PAM_MAXTRIES
+    PAM_NEW_AUTHTOK_REQD       = PAM_NEW_AUTHTOK_REQD
+    PAM_ACCT_EXPIRED           = PAM_ACCT_EXPIRED
+    PAM_SESSION_ERR            = PAM_SESSION_ERR
+    PAM_CRED_UNAVAIL           = PAM_CRED_UNAVAIL
+    PAM_CRED_EXPIRED           = PAM_CRED_EXPIRED
+    PAM_CRED_ERR               = PAM_CRED_ERR
+    PAM_NO_MODULE_DATA         = PAM_NO_MODULE_DATA
+    PAM_CONV_ERR               = PAM_CONV_ERR
+    PAM_AUTHTOK_ERR            = PAM_AUTHTOK_ERR
+    PAM_AUTHTOK_RECOVERY_ERR   = PAM_AUTHTOK_RECOVERY_ERR
+    PAM_AUTHTOK_LOCK_BUSY      = PAM_AUTHTOK_LOCK_BUSY
+    PAM_AUTHTOK_DISABLE_AGING  = PAM_AUTHTOK_DISABLE_AGING
+    PAM_TRY_AGAIN              = PAM_TRY_AGAIN
+    PAM_IGNORE                 = PAM_IGNORE
+    PAM_ABORT                  = PAM_ABORT
+    PAM_AUTHTOK_EXPIRED        = PAM_AUTHTOK_EXPIRED
+    PAM_MODULE_UNKNOWN         = PAM_MODULE_UNKNOWN
+    PAM_BAD_ITEM               = PAM_BAD_ITEM
+    PAM_CONV_AGAIN             = PAM_CONV_AGAIN
+    PAM_INCOMPLETE             = PAM_INCOMPLETE
     # Flags
-    PAM_SILENT                 = _PAM_SILENT
-    PAM_DISALLOW_NULL_AUTHTOK  = _PAM_DISALLOW_NULL_AUTHTOK
-    PAM_ESTABLISH_CRED         = _PAM_ESTABLISH_CRED
-    PAM_DELETE_CRED            = _PAM_DELETE_CRED
-    PAM_REINITIALIZE_CRED      = _PAM_REINITIALIZE_CRED
-    PAM_REFRESH_CRED           = _PAM_REFRESH_CRED
-    PAM_CHANGE_EXPIRED_AUTHTOK = _PAM_CHANGE_EXPIRED_AUTHTOK
+    PAM_SILENT                 = PAM_SILENT
+    PAM_DISALLOW_NULL_AUTHTOK  = PAM_DISALLOW_NULL_AUTHTOK
+    PAM_ESTABLISH_CRED         = PAM_ESTABLISH_CRED
+    PAM_DELETE_CRED            = PAM_DELETE_CRED
+    PAM_REINITIALIZE_CRED      = PAM_REINITIALIZE_CRED
+    PAM_REFRESH_CRED           = PAM_REFRESH_CRED
+    PAM_CHANGE_EXPIRED_AUTHTOK = PAM_CHANGE_EXPIRED_AUTHTOK
     # Internal flags
-    PAM_PRELIM_CHECK           = _PAM_PRELIM_CHECK
-    PAM_UPDATE_AUTHTOK         = _PAM_UPDATE_AUTHTOK
+    PAM_PRELIM_CHECK           = PAM_PRELIM_CHECK
+    PAM_UPDATE_AUTHTOK         = PAM_UPDATE_AUTHTOK
     # Item types
-    PAM_SERVICE                = _PAM_SERVICE
-    PAM_USER                   = _PAM_USER
-    PAM_TTY                    = _PAM_TTY
-    PAM_RHOST                  = _PAM_RHOST
-    PAM_CONV                   = _PAM_CONV
-    PAM_AUTHTOK                = _PAM_AUTHTOK
-    PAM_OLDAUTHTOK             = _PAM_OLDAUTHTOK
-    PAM_RUSER                  = _PAM_RUSER
-    PAM_USER_PROMPT            = _PAM_USER_PROMPT
+    PAM_SERVICE                = PAM_SERVICE
+    PAM_USER                   = PAM_USER
+    PAM_TTY                    = PAM_TTY
+    PAM_RHOST                  = PAM_RHOST
+    PAM_CONV                   = PAM_CONV
+    PAM_AUTHTOK                = PAM_AUTHTOK
+    PAM_OLDAUTHTOK             = PAM_OLDAUTHTOK
+    PAM_RUSER                  = PAM_RUSER
+    PAM_USER_PROMPT            = PAM_USER_PROMPT
     # Linux-PAM item type extensions
-    PAM_FAIL_DELAY             = _PAM_FAIL_DELAY
-    PAM_XDISPLAY               = _PAM_XDISPLAY
-    PAM_XAUTHDATA              = _PAM_XAUTHDATA
-    PAM_AUTHTOK_TYPE           = _PAM_AUTHTOK_TYPE
+    PAM_FAIL_DELAY             = PAM_FAIL_DELAY
+    PAM_XDISPLAY               = PAM_XDISPLAY
+    PAM_XAUTHDATA              = PAM_XAUTHDATA
+    PAM_AUTHTOK_TYPE           = PAM_AUTHTOK_TYPE
     # Message styles (pam_message)
-    PAM_PROMPT_ECHO_OFF        = _PAM_PROMPT_ECHO_OFF
-    PAM_PROMPT_ECHO_ON         = _PAM_PROMPT_ECHO_ON
-    PAM_ERROR_MSG              = _PAM_ERROR_MSG
-    PAM_TEXT_INFO              = _PAM_TEXT_INFO
-    # Linux-Pam message style extensions
-    PAM_RADIO_TYPE             = _PAM_RADIO_TYPE
-    PAM_BINARY_PROMPT          = _PAM_BINARY_PROMPT
+    PAM_PROMPT_ECHO_OFF        = PAM_PROMPT_ECHO_OFF
+    PAM_PROMPT_ECHO_ON         = PAM_PROMPT_ECHO_ON
+    PAM_ERROR_MSG              = PAM_ERROR_MSG
+    PAM_TEXT_INFO              = PAM_TEXT_INFO
+    # Linux-PAM message style extensions
+    PAM_RADIO_TYPE             = PAM_RADIO_TYPE
+    PAM_BINARY_PROMPT          = PAM_BINARY_PROMPT
     # Linux-PAM pam_set_data cleanup error_status
-    PAM_DATA_REPLACE           = _PAM_DATA_REPLACE
-    PAM_DATA_SILENT            = _PAM_DATA_SILENT
+    PAM_DATA_REPLACE           = PAM_DATA_REPLACE
+    PAM_DATA_SILENT            = PAM_DATA_SILENT
 
-    locals()['prop'] = 123
-
-    def __init__(self, read_end, write_end):
-        self._read_end = os.fdopen(read_end, "rb")
-        self._write_end = os.fdopen(write_end, "wb", buffering=0) # Write data to the pipe immediately
+    def __init__(self, read_fd, write_fd, pam_fn_name):
+        self._ipc = IPCWrapper(read_fd, write_fd)
+        self.pam_fn_name = pam_fn_name
 
     @property
     def service(self):
-        return self._get_item(_PAM_SERVICE)
+        return self._get_item(PAM_SERVICE)
 
     @service.setter
     def service(self, value):
-        self._set_item(_PAM_SERVICE, value)
+        self._set_item(PAM_SERVICE, value)
 
     @property
     def user(self):
-        return self._get_item(_PAM_USER)
+        return self._get_item(PAM_USER)
 
     @user.setter
     def user(self, value):
-        self._set_item(_PAM_USER, value)
+        self._set_item(PAM_USER, value)
 
     @property
     def xauthdata(self):
-        return self._get_item(_PAM_XAUTHDATA)
+        return self._get_item(PAM_XAUTHDATA)
 
     @xauthdata.setter
     def xauthdata(self, value: XAuthData):
-        self._set_item(_PAM_XAUTHDATA, value)
+        self._set_item(PAM_XAUTHDATA, value)
 
     def get_user(self, prompt=None):
         """Wrapper for pam_get_user()"""
-        write_int(self._write_end, _PAM_METHOD_GET_USER)
+        self._ipc.write_int(PAM_PYTHON_GET_USER)
 
         if prompt is None:
-            write_int(self._write_end, 0)
+            self._ipc.write_int(0)
         else:
             assert isinstance(prompt, str)
-            write_int(self._write_end, len(prompt))
-            write_string(self._write_end, prompt)
+            self._ipc.write_int(len(prompt))
+            self._ipc.write_string(prompt)
 
-        retval = read_int(self._read_end)
-        if retval != _PAM_SUCCESS:
+        retval = self._ipc.read_int()
+        if retval != PAM_SUCCESS:
             self.logger.log(f"Failed to get user [retval={retval}] {self.strerror(retval)}")
             raise self.PamException(err_num=retval, description=self.strerror(retval))
 
-        length = read_int(self._read_end)
-        return read_string(self._read_end, length)
+        length = self._ipc.read_int()
+        return self._ipc.read_string(length)
 
     def fail_delay(self, usec: int):
         """Set the fail delay"""
-        write_int(self._write_end, _PAM_METHOD_FAIL_DELAY)
-        write_int(self._write_end, usec)
+        self._ipc.write_int(PAM_PYTHON_FAIL_DELAY)
+        self._ipc.write_int(usec)
 
-        retval = read_int(self._read_end)
-        if retval != _PAM_SUCCESS:
+        retval = self._ipc.read_int()
+        if retval != PAM_SUCCESS:
             self.logger.log(f"Failed to set fail delay [retval={retval}] {self.strerror(retval)}")
             raise self.PamException(err_num=retval, description=self.strerror(retval))
 
@@ -317,32 +339,32 @@ class PamHandle:
         if not isinstance(msgs, list):
             msgs = [msgs]
 
-        write_int(self._write_end, _PAM_METHOD_CONVERSE)
-        write_int(self._write_end, len(msgs))
+        self._ipc.write_int(PAM_PYTHON_CONVERSE)
+        self._ipc.write_int(len(msgs))
 
         for msg in msgs:
-            write_int(self._write_end, msg.msg_style)
-            write_int(self._write_end, len(msg.msg))
-            write_string(self._write_end, msg.msg)
+            self._ipc.write_int(msg.msg_style)
+            self._ipc.write_int(len(msg.msg))
+            self._ipc.write_string(msg.msg)
 
-        retval = read_int(self._read_end)
-        if retval != _PAM_SUCCESS:
-            self.logger.log(f"Error when getting _PAM_CONV [retval={retval}] {self.strerror(retval)}")
+        retval = self._ipc.read_int()
+        if retval != PAM_SUCCESS:
+            self.logger.log(f"Error when getting PAM_CONV [retval={retval}] {self.strerror(retval)}")
             raise self.PamException(err_num=retval, description=self.strerror(retval))
 
         responses = []
         for _ in range(len(msgs)):
-            resp_retcode = read_int(self._read_end)
-            resp_len = read_int(self._read_end)
+            resp_retcode = self._ipc.read_int()
+            resp_len = self._ipc.read_int()
             if resp_len == 0:
                 responses.append(Response(None, resp_retcode))
             else:
-                data = read_string(self._read_end, resp_len)
+                data = self._ipc.read_string(resp_len)
                 responses.append(Response(data, resp_retcode))
 
         return responses
 
-    def prompt(self, msg, msg_style=_PAM_PROMPT_ECHO_OFF):
+    def prompt(self, msg, msg_style=PAM_PROMPT_ECHO_OFF):
         """Simplified conversation interface with a single message"""
         if isinstance(msg, Message):
             return self.converse(msg)
@@ -352,83 +374,83 @@ class PamHandle:
 
     def strerror(self, err_num):
         """Get a description from an error number"""
-        write_int(self._write_end, _PAM_METHOD_STERROR)
-        write_int(self._write_end, err_num)
-        length = read_int(self._read_end)
-        return read_string(self._read_end, length)
+        self._ipc.write_int(PAM_PYTHON_STERROR)
+        self._ipc.write_int(err_num)
+        length = self._ipc.read_int()
+        return self._ipc.read_string(length)
 
     def log(self, msg, priority=LOG_ERR):
         """Wrapper for pam_syslog()"""
         print(msg)
         assert isinstance(msg, str)
-        write_int(self._write_end, _PAM_METHOD_SYSLOG)
-        write_int(self._write_end, priority)
-        write_int(self._write_end, len(msg))
-        write_string(self._write_end, msg)
+        self._ipc.write_int(PAM_PYTHON_SYSLOG)
+        self._ipc.write_int(priority)
+        self._ipc.write_int(len(msg))
+        self._ipc.write_string(msg)
 
     def debug(self, msg: str):
         """log with a debug priority"""
         self.log(msg, LOG_DEBUG)
 
     def _get_item(self, item_type):
-        if item_type == _PAM_CONV or item_type == _PAM_FAIL_DELAY:
+        if item_type == PAM_CONV or item_type == PAM_FAIL_DELAY:
             # We don't allow accessing these items
             return None
-        elif item_type == _PAM_XAUTHDATA:
-            write_int(self._write_end, _PAM_METHOD_GET_ITEM)
-            write_int(self._write_end, item_type)
-            retval = read_int(self._read_end)
+        elif item_type == PAM_XAUTHDATA:
+            self._ipc.write_int(PAM_PYTHON_GET_ITEM)
+            self._ipc.write_int(item_type)
+            retval = self._ipc.read_int()
 
-            if retval != _PAM_SUCCESS:
+            if retval != PAM_SUCCESS:
                 self.logger.log(f"Error when getting XAuthData [retval={retval}] {self.strerror(retval)}")
                 raise self.PamException(err_num=retval, description=self.strerror(retval))
 
-            namelen = read_int(self._read_end)
+            namelen = self._ipc.read_int()
             # print(f"[CH] namelen {namelen}")
-            name = read_string(self._read_end, namelen)
-            datalen = read_int(self._read_end)
+            name = self._ipc.read_string(namelen)
+            datalen = self._ipc.read_int()
             # print(f"[CH] datalen {datalen}")
-            data = read_bytes(self._read_end, datalen)
+            data = self._ipc.read_bytes(datalen)
             return XAuthData(name, data)
         else:
-            write_int(self._write_end, _PAM_METHOD_GET_ITEM)
-            write_int(self._write_end, item_type)
-            retval = read_int(self._read_end)
+            self._ipc.write_int(PAM_PYTHON_GET_ITEM)
+            self._ipc.write_int(item_type)
+            retval = self._ipc.read_int()
 
-            if retval != _PAM_SUCCESS:
+            if retval != PAM_SUCCESS:
                 self.logger.log(f"Error when getting item [item_type={item_type}, retval={retval}] {self.strerror(retval)}")
                 raise self.PamException(err_num=retval, description=self.strerror(retval))
 
-            length = read_int(self._read_end)
-            return read_string(self._read_end, length)
+            length = self._ipc.read_int()
+            return self._ipc.read_string(length)
 
     def _set_item(self, item_type, item):
-        if item_type == _PAM_CONV or item_type == _PAM_FAIL_DELAY:
+        if item_type == PAM_CONV or item_type == PAM_FAIL_DELAY:
             # We don't allow setting these items
             # Use fail_delay() or converse() instead
             pass
-        elif item_type == _PAM_XAUTHDATA:
+        elif item_type == PAM_XAUTHDATA:
             assert isinstance(item, XAuthData)
-            write_int(self._write_end, _PAM_METHOD_SET_ITEM)
-            write_int(self._write_end, item_type)
-            write_int(self._write_end, len(item.name))
-            write_string(self._write_end, item.name)
-            write_int(self._write_end, len(item.data))
-            write_bytes(self._write_end, item.data)
-            retval = read_int(self._read_end)
+            self._ipc.write_int(PAM_PYTHON_SET_ITEM)
+            self._ipc.write_int(item_type)
+            self._ipc.write_int(len(item.name))
+            self._ipc.write_string(item.name)
+            self._ipc.write_int(len(item.data))
+            self._ipc.write_bytes(item.data)
+            retval = self._ipc.read_int()
 
-            if retval != _PAM_SUCCESS:
+            if retval != PAM_SUCCESS:
                 self.logger.log(f"Error when setting XAuthData [retval={retval}] {self.strerror(retval)}")
                 raise self.PamException(err_num=retval, description=self.strerror(retval))
         else:
             assert isinstance(item, str)
-            write_int(self._write_end, _PAM_METHOD_SET_ITEM)
-            write_int(self._write_end, item_type)
-            write_int(self._write_end, len(item))
-            write_string(self._write_end, item)
-            retval = read_int(self._read_end)
+            self._ipc.write_int(PAM_PYTHON_SET_ITEM)
+            self._ipc.write_int(item_type)
+            self._ipc.write_int(len(item))
+            self._ipc.write_string(item)
+            retval = self._ipc.read_int()
 
-            if retval != _PAM_SUCCESS:
+            if retval != PAM_SUCCESS:
                 self.logger.log(f"Error when setting item [item_type={item_type}, retval={retval}] {self.strerror(retval)}")
                 raise self.PamException(err_num=retval, description=self.strerror(retval))
 
@@ -441,25 +463,14 @@ def _load_module(file_path):
     spec.loader.exec_module(module)
     return module
 
-# Based on pam_deny.so
-# https://github.com/linux-pam/linux-pam/blob/master/modules/pam_deny/pam_deny.c
-ERRORS = {
-    "pam_sm_authenticate": _PAM_AUTH_ERR,
-    "pam_sm_setcred": _PAM_CRED_ERR,
-    "pam_sm_acct_mgmt": _PAM_AUTH_ERR,
-    "pam_sm_open_session": _PAM_SESSION_ERR,
-    "pam_sm_close_session": _PAM_SESSION_ERR,
-    "pam_sm_chauthtok": _PAM_AUTHTOK_ERR
-}
-
 
 cdef public int python_handle_request(int read_end, int write_end, int flags, int argc, const char ** argv, char *pam_fn_name):
     fn_name = pam_fn_name.decode("utf-8")
-    pam_handle = PamHandle(read_end, write_end)
+    pam_handle = PamHandle(read_end, write_end, pam_fn_name)
 
     if argc == 0:
         pam_handle.log("No python module provided")
-        return ERRORS[fn_name]
+        return default_errors[fn_name]
 
     args = []
     for i in range(argc):
@@ -470,22 +481,22 @@ cdef public int python_handle_request(int read_end, int write_end, int flags, in
         module = _load_module(args[0])
     except Exception as e:
         pam_handle.log(f"Failed to import python module: {e}")
-        return ERRORS[fn_name]
+        return default_errors[fn_name]
 
     handler = getattr(module, fn_name, None)
     if handler is None:
         pam_handle.log(f"No python handler provided for {fn_name}")
-        return ERRORS[fn_name]
+        return default_errors[fn_name]
 
     try:
         retval = handler(pam_handle, flags, args[1:])
     except Exception as e:
         pam_handle.log(f"Exception ocurred while running python handler: [flags={flags}, args={args[1:]}, fn_name={fn_name}]" +
                        f"   Exception: {e}")
-        return ERRORS[fn_name]
+        return default_errors[fn_name]
 
     if not isinstance(retval, int):
         pam_handle.log(f"Return value must be an integer, received {type(retval)} [value={retval}]")
-        return ERRORS[fn_name]
+        return default_errors[fn_name]
     else:
         return retval

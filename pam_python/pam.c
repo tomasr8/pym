@@ -1,10 +1,10 @@
 #include "pam.h"
 
-#define ENSURE(x) \
+#define OK(x) \
   if (x != SUCCESS) return x
-#define ENSURE(x, ret) \
-  if (x != SUCCESS) return ret
 
+#define OK_GOTO(x) \
+  if (x != SUCCESS) goto cleanup
 
 int get_default_err(char *pam_fn_name) {
   if (strcmp(pam_fn_name, "pam_sm_authenticate") == 0) {
@@ -23,46 +23,44 @@ int get_default_err(char *pam_fn_name) {
   return PAM_ABORT;
 }
 
-
-int get_error_description(pam_handle_t *pamh, struct ipc_pipe p) {
+int ipc_strerror(pam_handle_t *pamh, struct ipc_pipe p) {
   int status, errnum;
 
   status = read_int(p.read_end, &errnum);
-  ENSURE(status);
+  OK(status);
 
   const char *str = pam_strerror(pamh, errnum);
 
   status = write_int(p.write_end, strlen(str));
-  ENSURE(status);
+  OK(status);
 
   status = write_string(p.write_end, (char *)str, strlen(str));
-  ENSURE(status);
+  OK(status);
 
   return SUCCESS;
 }
 
-
-int get_item(pam_handle_t *pamh, struct ipc_pipe p) {
+int ipc_get_item(pam_handle_t *pamh, struct ipc_pipe p) {
   int item_type;
   int status = read_int(p.read_end, &item_type);
-  ENSURE(status);
+  OK(status);
 
   if (item_type == PAM_XAUTHDATA) {
     struct pam_xauth_data *xauth;
 
     int retval = pam_get_item(pamh, item_type, (const void **)&xauth);
     status = write_int(p.write_end, retval);
-    ENSURE(status);
+    OK(status);
 
     if (pam_retval == PAM_SUCCESS) {
       status = write_int(p.write_end, xauth->namelen);
-      ENSURE(status);
+      OK(status);
       status = write_string(p.write_end, xauth->name, xauth->namelen);
-      ENSURE(status);
+      OK(status);
       status = write_int(p.write_end, xauth->datalen);
-      ENSURE(status);
+      OK(status);
       status = write_string(p.write_end, xauth->data, xauth->datalen);
-      ENSURE(status);
+      OK(status);
     }
 
     return SUCCESS;
@@ -71,52 +69,51 @@ int get_item(pam_handle_t *pamh, struct ipc_pipe p) {
 
     retval = pam_get_item(pamh, item_type, (const void **)&item);
     status = write_int(p.write_end, retval);
-    ENSURE(status);
+    OK(status);
 
     if (retval == PAM_SUCCESS) {
       status = write_int(p.write_end, strlen(item));
-      ENSURE(status);
+      OK(status);
       status = write_string(p.write_end, item, strlen(item));
-      ENSURE(status);
+      OK(status);
     }
 
     return SUCCESS;
   }
 }
 
-
-int set_item(pam_handle_t *pamh, struct ipc_pipe p) {
+int ipc_set_item(pam_handle_t *pamh, struct ipc_pipe p) {
   int item_type;
   int status = read_int(p.read_end, &item_type);
-  ENSURE(status);
+  OK(status);
 
   if (item_type == PAM_XAUTHDATA) {
     struct pam_xauth_data *xauth = malloc(sizeof(struct pam_xauth_data));
     if (!xauth) return MALLOC_ERR;
 
     status = read_int(p.read_end, &xauth->namelen);
-    if (status != SUCCESS) goto cleanup;
+    OK_GOTO(status);
 
     xauth->name = malloc(xauth->namelen + 1);
     if (!xauth->name) {
-        status = MALLOC_ERR;
-        goto cleanup;
+      status = MALLOC_ERR;
+      goto cleanup;
     }
 
     status = read_string(p.read_end, name, xauth->namelen);
-    if (status != SUCCESS) goto cleanup;
+    OK_GOTO(status);
 
     status = read_int(p.read_end, &xauth->datalen);
-    if (status != SUCCESS) goto cleanup;
+    OK_GOTO(status);
 
     xauth->data = malloc(xauth->datalen);
     if (xauth->data) {
-        status = MALLOC_ERR;
-        goto cleanup;
+      status = MALLOC_ERR;
+      goto cleanup;
     }
 
     status = read_bytes(p.read_end, data, xauth->datalen);
-    if (status != SUCCESS) goto cleanup;
+    OK_GOTO(status);
 
     int retval = pam_set_item(pamh, item_type, xauth);
     status = write_int(p.write_end, retval);
@@ -130,7 +127,7 @@ int set_item(pam_handle_t *pamh, struct ipc_pipe p) {
     int len;
 
     status = read_int(p.read_end, &len);
-    ENSURE(status);
+    OK(status);
 
     char *item = malloc(len + 1);
     if (!item) return MALLOC_ERR;
@@ -148,25 +145,25 @@ int set_item(pam_handle_t *pamh, struct ipc_pipe p) {
   }
 }
 
-int fail_delay(pam_handle_t *pamh, struct ipc_pipe p) {
+int ipc_fail_delay(pam_handle_t *pamh, struct ipc_pipe p) {
   int status, delay;
 
   status = read_int(p.read_end, &delay);
-  ENSURE(status);
+  OK(status);
 
   int retval = pam_fail_delay(pamh, delay);
   status = write_int(p.write_end, retval);
-  ENSURE(status);
+  OK(status);
 
   return SUCCESS;
 }
 
-int converse(pam_handle_t *pamh, struct ipc_pipe p) {
+int ipc_converse(pam_handle_t *pamh, struct ipc_pipe p) {
   int status, retval, num_msgs;
   struct pam_conv *conv;
-  
+
   status = read_int(p.read_end, &num_msgs);
-  ENSURE(status);
+  OK(status);
 
   retval = pam_get_item(pamh, PAM_CONV, (const void **)&conv);
   if (retval != PAM_SUCCESS) {
@@ -175,76 +172,89 @@ int converse(pam_handle_t *pamh, struct ipc_pipe p) {
   }
 
   struct pam_message **msgs = malloc(num_msgs * sizeof(struct pam_message *));
-  if(!pam_message) {
+  if (!pam_message) {
     return MALLOC_ERR;
   }
 
+  int len;
   for (int i = 0; i < num_msgs; i++) {
     msgs[i] = malloc(sizeof(struct pam_message));
+    if (!msgs[i]) goto cleanup;
+
     status = read_int(p.read_end, &msgs[i]->msg_style);
-    int len;
+    OK_GOTO(status);
     status = read_int(p.read_end, &len);
+    OK_GOTO(status);
+
     msgs[i]->msg = malloc(len + 1);
+    if (!msgs[i]->msg) goto cleanup;
+
     status = read_string(p.read_end, (char *)msgs[i]->msg, len);
+    OK_GOTO(status);
   }
 
   struct pam_response *resps;
   retval = conv->conv(num_msgs, (const struct pam_message **)msgs, &resps, conv->appdata_ptr);
   if (retval != PAM_SUCCESS) {
     write_int(p.write_end, retval);
-    for (int i = 0; i < num_msgs; i++) {
-      free((char *)msgs[i]->msg);
-      free(msgs[i]);
-    }
-    free(msgs);
-    return;
+    goto cleanup;
   }
-
-//   for (int i = 0; i < num_msgs; i++) {
-//     free((char *)msgs[i]->msg);
-//     free(msgs[i]);
-//   }
-//   free(msgs);
 
   status = write_int(p.write_end, PAM_SUCCESS);
+  OK_GOTO(status);
 
   for (int i = 0; i < num_msgs; i++) {
-    write_int(p.write_end, resps[i].resp_retcode);
+    status = write_int(p.write_end, resps[i].resp_retcode);
+    OK_GOTO(status);
+
     if (!resps[i].resp) {
-      write_int(p.write_end, 0);
+      status = write_int(p.write_end, 0);
+      OK_GOTO(status);
     } else {
       int len = strlen(resps[i].resp);
-      write_int(p.write_end, len);
-      write_string(p.write_end, resps[i].resp, len);
-      // We are responsible for freeing the responses
-      // # Overwrite and free the response
-      // # Overwriting ensures we don't leak any sensitive data like passwords
-      memset(resps[i].resp, 0, len);
-      free(resps[i].resp);
+
+      status = write_int(p.write_end, len);
+      OK_GOTO(status);
+
+      status = write_string(p.write_end, resps[i].resp, len);
+      OK_GOTO(status);
     }
   }
-  free(resps);
-
 
 cleanup:
   for (int i = 0; i < num_msgs; i++) {
-    if(msgs[i]) {
-        if(msgs[i]->msg) free(msgs[i]->msg);
-        free(msgs[i]);
+    if (msgs[i]) {
+      if (msgs[i]->msg) free(msgs[i]->msg);
+      free(msgs[i]);
     }
   }
   free(msgs);
+
+  // We are responsible for freeing the responses
+  if (resps) {
+    for (int i = 0; i < num_msgs; i++) {
+      if (resps[i].resp) {
+        int len = strlen(resps[i].resp);
+        // Overwriting ensures we don't leak any sensitive data like passwords
+        memset(resps[i].resp, 0, len);
+        free(resps[i].resp);
+      }
+    }
+    free(resps);
+  }
+
+  return status;
 }
 
-static int log_to_syslog(pam_handle_t *pamh, struct ipc_pipe p) {
+int ipc_syslog(pam_handle_t *pamh, struct ipc_pipe p) {
   int status, priority, len;
   char *msg;
 
   status = read_int(p.read_end, &priority);
-  ENSURE(status);
+  OK(status);
 
   status = read_int(p.read_end, &len);
-  ENSURE(status);
+  OK(status);
 
   msg = malloc(len + 1);
   if (!msg) return MALLOC_ERR;
@@ -260,5 +270,3 @@ static int log_to_syslog(pam_handle_t *pamh, struct ipc_pipe p) {
   free(msg);
   return SUCCESS;
 }
-
-// static void _log(pamh, int priority, )

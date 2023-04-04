@@ -7,14 +7,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#define _PAM_METHOD_GET_ITEM 1
-#define _PAM_METHOD_SET_ITEM 2
-#define _PAM_METHOD_GET_USER 3
-#define _PAM_METHOD_CONVERSE 4
-#define _PAM_METHOD_FAIL_DELAY 5
-#define _PAM_METHOD_STRERROR 6
-#define _PAM_METHOD_SYSLOG 7
-
 #define SUCCESS 0
 #define READ_EOF 1
 #define READ_ERR 2
